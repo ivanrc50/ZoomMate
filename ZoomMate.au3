@@ -12,11 +12,14 @@
 Opt("MustDeclareVars", 1)
 Opt("GUIOnEventMode", 1)
 
+; Windows messages for per-keystroke validation
+Global Const $WM_COMMAND = 0x0111
+Global Const $EN_CHANGE = 0x0300
+
 ; -------------------------
 ; Script configuration
 ; -------------------------
 Global Const $CONFIG_FILE = @ScriptDir & "\zoom_config.ini"
-Global Const $MAX_WAIT_TIME = 30000  ; 30 seconds
 
 ; -------------------------
 ; Runtime variables
@@ -24,17 +27,113 @@ Global Const $MAX_WAIT_TIME = 30000  ; 30 seconds
 Global $g_PrePostSettingsConfigured = False
 Global $g_DuringMeetingSettingsConfigured = False
 
-; Default meeting configuration
-Global $meetingID, $midweekDay, $midweekTime, $weekendDay, $weekendTime
+Global $g_UserSettings = ObjCreate("Scripting.Dictionary")
 
-; GUI globals
-Global $msg, $idMeetingID, $idMidweekDay, $idMidweekTime, $idWeekendDay, $idWeekendTime, $idSaveBtn, $idQuitBtn
+; i18n containers
+Global $g_Languages = ObjCreate("Scripting.Dictionary") ; langCode -> dict of key->string
+Global $g_LangCodeToName = ObjCreate("Scripting.Dictionary") ; langCode -> display name
+Global $g_LangNameToCode = ObjCreate("Scripting.Dictionary") ; display name -> langCode
+Global $g_CurrentLang = "en"
+
+Func GetUserSetting($key)
+	If $g_UserSettings.Exists($key) Then Return $g_UserSettings.Item($key)
+	Return ""
+EndFunc   ;==>GetUserSetting
+
+; translation lookup with fallback to English, supports placeholders {0},{1},{2}
+Func t($key, $p0 = Default, $p1 = Default, $p2 = Default)
+	If $g_Languages.Exists($g_CurrentLang) Then
+		Local $oDict = $g_Languages.Item($g_CurrentLang)
+		If $oDict.Exists($key) Then
+			Local $s = $oDict.Item($key)
+			If $p0 <> Default Then $s = StringReplace($s, "{0}", $p0)
+			If $p1 <> Default Then $s = StringReplace($s, "{1}", $p1)
+			If $p2 <> Default Then $s = StringReplace($s, "{2}", $p2)
+			Return $s
+		EndIf
+	EndIf
+	If $g_Languages.Exists("en") Then
+		Local $oEn = $g_Languages.Item("en")
+		If $oEn.Exists($key) Then
+			Local $s2 = $oEn.Item($key)
+			If $p0 <> Default Then $s2 = StringReplace($s2, "{0}", $p0)
+			If $p1 <> Default Then $s2 = StringReplace($s2, "{1}", $p1)
+			If $p2 <> Default Then $s2 = StringReplace($s2, "{2}", $p2)
+			Return $s2
+		EndIf
+	EndIf
+	Return $key
+EndFunc   ;==>t
+
+Func _LoadTranslations()
+	Local $sDir = @ScriptDir & "\i18n\*.ini"
+	Local $hSearch = FileFindFirstFile($sDir)
+	If $hSearch = -1 Then Return
+	While 1
+		Local $sFile = FileFindNextFile($hSearch)
+		If @error Then ExitLoop
+		Local $lang = StringTrimRight($sFile, 4)
+		Local $fullPath = @ScriptDir & "\i18n\" & $sFile
+		Local $a = IniReadSection($fullPath, "translations")
+		If @error Then ContinueLoop
+		Local $dict = ObjCreate("Scripting.Dictionary")
+		For $i = 1 To $a[0][0]
+			$dict.Add($a[$i][0], $a[$i][1])
+		Next
+		If $g_Languages.Exists($lang) Then $g_Languages.Remove($lang)
+		$g_Languages.Add($lang, $dict)
+
+		; map display names
+		Local $langName = ""
+		If $dict.Exists("LANGNAME") Then $langName = $dict.Item("LANGNAME")
+		If $langName = "" Then $langName = $lang
+		If $g_LangCodeToName.Exists($lang) Then $g_LangCodeToName.Remove($lang)
+		$g_LangCodeToName.Add($lang, $langName)
+		If $g_LangNameToCode.Exists($langName) Then $g_LangNameToCode.Remove($langName)
+		$g_LangNameToCode.Add($langName, $lang)
+	WEnd
+	FileClose($hSearch)
+EndFunc   ;==>_LoadTranslations
+
+Func _ListAvailableLanguageNames()
+	Local $list = ""
+	For $name In $g_LangNameToCode.Keys
+		$list &= ($list = "" ? $name : "," & $name)
+	Next
+	Return $list
+EndFunc   ;==>_ListAvailableLanguageNames
+
+Func _GetLanguageDisplayName($code)
+	If $g_LangCodeToName.Exists($code) Then Return $g_LangCodeToName.Item($code)
+	Return $code
+EndFunc   ;==>_GetLanguageDisplayName
+
+Global $idSaveBtn
+Global $idLanguagePicker
+
+Global $g_FieldCtrls = ObjCreate("Scripting.Dictionary")
+Global $g_DayLabelToNum = ObjCreate("Scripting.Dictionary")
+Global $g_DayNumToLabel = ObjCreate("Scripting.Dictionary")
+Global $g_ErrorAreaLabel = 0
+
+
+Func _InitDayLabelMaps()
+	; Build maps 1..7 using translations DAY_1..DAY_7
+	Local $i
+	For $i = 1 To 7
+		Local $key = "DAY_" & $i
+		Local $label = t($key)
+		If Not $g_DayLabelToNum.Exists($label) Then $g_DayLabelToNum.Add($label, $i)
+		If Not $g_DayNumToLabel.Exists(String($i)) Then $g_DayNumToLabel.Add(String($i), $label)
+	Next
+EndFunc   ;==>_InitDayLabelMaps
+
 ; -------------------------
 ; Initialize UIAutomation COM
 ; -------------------------
 Global $oUIAutomation = ObjCreateInterface($sCLSID_CUIAutomation, $sIID_IUIAutomation, $dtagIUIAutomation)
 If Not IsObj($oUIAutomation) Then
-	MsgBox($MB_ICONERROR, "UIAutomation", "Failed to create UIAutomation COM object.")
+	Debug("Failed to create UIAutomation COM object.", "UIA")
 	Exit
 EndIf
 Debug("UIAutomation COM created successfully.", "UIA")
@@ -43,7 +142,7 @@ Global $pDesktop
 $oUIAutomation.GetRootElement($pDesktop)
 Global $oDesktop = ObjCreateInterface($pDesktop, $sIID_IUIAutomationElement, $dtagIUIAutomationElement)
 If Not IsObj($oDesktop) Then
-	MsgBox($MB_ICONERROR, "UIAutomation", "Failed to get desktop element.")
+	Debug(t("ERROR_GET_DESKTOP_ELEMENT_FAILED"), "ERROR")
 	Exit
 EndIf
 Debug("Desktop element obtained.", "UIA")
@@ -83,74 +182,238 @@ Func ShowConfigGUI()
 		Return
 	EndIf
 
-	$g_ConfigGUI = GUICreate("ZoomMate Configuration", 320, 220)
-	GUICtrlCreateLabel("Zoom Meeting ID:", 10, 10, 120, 20)
-	$idMeetingID = GUICtrlCreateInput($meetingID, 140, 10, 160, 20)
+	_InitDayLabelMaps()
+	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 460)
 
-	GUICtrlCreateLabel("Midweek Day (1=Sun,..7=Sat):", 10, 40, 180, 20)
-	$idMidweekDay = GUICtrlCreateInput($midweekDay, 200, 40, 100, 20)
+	GUICtrlCreateLabel("Language:", 10, 160, 120, 20)
+	$idLanguagePicker = GUICtrlCreateCombo("", 140, 160, 160, 20)
+	GUICtrlSetData($idLanguagePicker, _ListAvailableLanguageNames(), _GetLanguageDisplayName(GetUserSetting("Language")))
 
-	GUICtrlCreateLabel("Midweek Time (HH:MM):", 10, 70, 180, 20)
-	$idMidweekTime = GUICtrlCreateInput($midweekTime, 200, 70, 100, 20)
+	; Dynamically add text input fields and track their control IDs by key
+	_AddTextInputField("MeetingID", t("LABEL_MEETING_ID"), 10, 10, 140, 10, 160)
 
-	GUICtrlCreateLabel("Weekend Day (1=Sun,..7=Sat):", 10, 100, 180, 20)
-	$idWeekendDay = GUICtrlCreateInput($weekendDay, 200, 100, 100, 20)
+	_AddDayDropdownField("MidweekDay", t("LABEL_MIDWEEK_DAY"), 10, 40, 200, 40, 100)
+	_AddTextInputField("MidweekTime", t("LABEL_MIDWEEK_TIME"), 10, 70, 200, 70, 100)
 
-	GUICtrlCreateLabel("Weekend Time (HH:MM):", 10, 130, 180, 20)
-	$idWeekendTime = GUICtrlCreateInput($weekendTime, 200, 130, 100, 20)
+	_AddDayDropdownField("WeekendDay", t("LABEL_WEEKEND_DAY"), 10, 100, 200, 100, 100)
+	_AddTextInputField("WeekendTime", t("LABEL_WEEKEND_TIME"), 10, 130, 200, 130, 100)
 
-	$idSaveBtn = GUICtrlCreateButton("Save", 60, 170, 80, 30)
-	$idQuitBtn = GUICtrlCreateButton("Quit", 180, 170, 80, 30)
+	_AddTextInputField("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 190, 140, 190, 160)
+	_AddTextInputField("MuteAllValue", t("LABEL_MUTE_All"), 10, 220, 140, 220, 160)
+	_AddTextInputField("YesValue", t("LABEL_YES"), 10, 250, 140, 250, 160)
+
+	; Error area just above buttons (full width)
+	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 275, 300, 20)
+	GUICtrlSetColor($g_ErrorAreaLabel, 0xFF0000)
+
+	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 300, 80, 30)
+	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 300, 80, 30)
 
 	; Save button is disabled by default
 	GUICtrlSetState($idSaveBtn, $GUI_DISABLE)
-	GUICtrlSetState($GUI_EVENT_CLOSE, $GUI_DISABLE)
 	GUICtrlSetState($idQuitBtn, $GUI_ENABLE)
 
 	GUICtrlSetOnEvent($idSaveBtn, "SaveConfigGUI")
 	GUICtrlSetOnEvent($idQuitBtn, "QuitApp")
 
-	; Enable Save button only if all fields have a value
-	GUICtrlSetOnEvent($idMeetingID, "CheckConfigFields")
-	GUICtrlSetOnEvent($idMidweekDay, "CheckConfigFields")
-	GUICtrlSetOnEvent($idMidweekTime, "CheckConfigFields")
-	GUICtrlSetOnEvent($idWeekendDay, "CheckConfigFields")
-	GUICtrlSetOnEvent($idWeekendTime, "CheckConfigFields")
-
 	CheckConfigFields() ; Initial check
 
 
 	GUISetState(@SW_SHOW, $g_ConfigGUI)
+
+	; Ensure per-keystroke validation via EN_CHANGE for Edit controls
+	GUIRegisterMsg($WM_COMMAND, "_WM_COMMAND_EditChange")
 EndFunc   ;==>ShowConfigGUI
 
+; Helper to add a label + input, and register the input control ID under a key
+Func _AddTextInputField($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput)
+	GUICtrlCreateLabel($label, $xLabel, $yLabel, 180, 20)
+	Local $idInput = GUICtrlCreateInput(GetUserSetting($key), $xInput, $yInput, $wInput, 20)
+	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
+	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
+EndFunc   ;==>_AddTextInputField
+
+Func _AddDayDropdownField($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput)
+	GUICtrlCreateLabel($label, $xLabel, $yLabel, 180, 20)
+	; Build day list from maps
+	Local $dayList = ""
+	Local $i
+	; Show Monday (2) through Saturday (7) first
+	For $i = 2 To 7
+		Local $lbl = t("DAY_" & $i)
+		$dayList &= ($dayList = "" ? $lbl : "|" & $lbl)
+	Next
+	; Then Sunday (1) last for UI niceness
+	Local $lblSun = t("DAY_" & 1)
+	$dayList &= ($dayList = "" ? $lblSun : "|" & $lblSun)
+
+	Local $currentNum = String(GetUserSetting($key))
+	Local $currentLabel = $currentNum
+	If $g_DayNumToLabel.Exists($currentNum) Then $currentLabel = $g_DayNumToLabel.Item($currentNum)
+
+	Local $idCombo = GUICtrlCreateCombo("", $xInput, $yInput, $wInput, 20)
+	GUICtrlSetData($idCombo, $dayList, $currentLabel)
+	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idCombo)
+	GUICtrlSetOnEvent($idCombo, "CheckConfigFields")
+EndFunc   ;==>_AddDayDropdownField
+
+Func _IsValidMeetingID($s)
+	$s = StringStripWS($s, 3)
+	If $s = "" Then Return False
+	If Not StringRegExp($s, "^\d{9,11}$") Then Return False
+	Return True
+EndFunc   ;==>_IsValidMeetingID
+
+Func _IsValidTime($s)
+	$s = StringStripWS($s, 3)
+	If $s = "" Then Return False
+	If Not StringRegExp($s, "^(\d{1,2}):(\d{2})$") Then Return False
+	Local $a = StringSplit($s, ":")
+	Local $h = Number($a[1])
+	Local $m = Number($a[2])
+	If $h < 0 Or $h > 23 Then Return False
+	If $m < 0 Or $m > 59 Then Return False
+	Return True
+EndFunc   ;==>_IsValidTime
+
 Func CheckConfigFields()
-	Local $v1 = StringStripWS(GUICtrlRead($idMeetingID), 3)
-	Local $v2 = StringStripWS(GUICtrlRead($idMidweekDay), 3)
-	Local $v3 = StringStripWS(GUICtrlRead($idMidweekTime), 3)
-	Local $v4 = StringStripWS(GUICtrlRead($idWeekendDay), 3)
-	Local $v5 = StringStripWS(GUICtrlRead($idWeekendTime), 3)
-	If $v1 <> "" And $v2 <> "" And $v3 <> "" And $v4 <> "" And $v5 <> "" Then
-		GUICtrlSetState($idSaveBtn, $GUI_ENABLE)
-	Else
-		GUICtrlSetState($idSaveBtn, $GUI_DISABLE)
+	Local $allFilled = True
+	For $sKey In $g_FieldCtrls.Keys
+		Local $ctrlId = $g_FieldCtrls.Item($sKey)
+		Local $val = StringStripWS(GUICtrlRead($ctrlId), 3)
+		If $val = "" Then
+			$allFilled = False
+			; mark required field with tooltip and light red background (no text color change)
+			GUICtrlSetTip($ctrlId, t("ERROR_REQUIRED"))
+			GUICtrlSetBkColor($ctrlId, 0xEEDDDD)
+		EndIf
+	Next
+
+	; Additional format validation
+	If $allFilled Then
+		Local $ok = True
+		; MeetingID must be 9-11 digits
+		Local $idCtrl = $g_FieldCtrls.Item("MeetingID")
+		If Not _IsValidMeetingID(GUICtrlRead($idCtrl)) Then $ok = False
+
+		; Times must be valid HH:MM (24h)
+		Local $midCtrl = $g_FieldCtrls.Item("MidweekTime")
+		Local $wkdCtrl = $g_FieldCtrls.Item("WeekendTime")
+		If Not _IsValidTime(GUICtrlRead($midCtrl)) Then $ok = False
+		If Not _IsValidTime(GUICtrlRead($wkdCtrl)) Then $ok = False
+
+		$allFilled = $ok
 	EndIf
+
+	; Aggregate error messages and color inputs red while invalid; also set tooltips
+	Local $aMsgs = ($allFilled ? "" : t("ERROR_FIELDS_REQUIRED"))
+
+	; Clear required tooltip/background for non-empty fields
+	For $sKey In $g_FieldCtrls.Keys
+		Local $ctrlId2 = $g_FieldCtrls.Item($sKey)
+		Local $val2 = StringStripWS(GUICtrlRead($ctrlId2), 3)
+		If $val2 <> "" Then
+			GUICtrlSetTip($ctrlId2, "")
+			GUICtrlSetBkColor($ctrlId2, 0xFFFFFF)
+		EndIf
+	Next
+	Local $sIdVal = StringStripWS(GUICtrlRead($g_FieldCtrls.Item("MeetingID")), 3)
+	If $sIdVal <> "" And Not _IsValidMeetingID($sIdVal) Then
+		$aMsgs &= ($aMsgs = "" ? t("ERROR_MEETING_ID_FORMAT") : "  •  " & t("ERROR_MEETING_ID_FORMAT"))
+		GUICtrlSetColor($g_FieldCtrls.Item("MeetingID"), 0xFF0000)
+		GUICtrlSetTip($g_FieldCtrls.Item("MeetingID"), t("ERROR_MEETING_ID_FORMAT"))
+	Else
+		If $sIdVal <> "" Then
+			GUICtrlSetColor($g_FieldCtrls.Item("MeetingID"), 0x000000)
+			GUICtrlSetTip($g_FieldCtrls.Item("MeetingID"), "")
+		EndIf
+	EndIf
+
+	Local $sMidVal = StringStripWS(GUICtrlRead($g_FieldCtrls.Item("MidweekTime")), 3)
+	If $sMidVal <> "" And Not _IsValidTime($sMidVal) Then
+		$aMsgs &= ($aMsgs = "" ? t("ERROR_TIME_FORMAT") : "  •  " & t("ERROR_TIME_FORMAT"))
+		GUICtrlSetColor($g_FieldCtrls.Item("MidweekTime"), 0xFF0000)
+		GUICtrlSetTip($g_FieldCtrls.Item("MidweekTime"), t("ERROR_TIME_FORMAT"))
+	Else
+		If $sMidVal <> "" Then
+			GUICtrlSetColor($g_FieldCtrls.Item("MidweekTime"), 0x000000)
+			GUICtrlSetTip($g_FieldCtrls.Item("MidweekTime"), "")
+		EndIf
+	EndIf
+
+	Local $sWkdVal = StringStripWS(GUICtrlRead($g_FieldCtrls.Item("WeekendTime")), 3)
+	If $sWkdVal <> "" And Not _IsValidTime($sWkdVal) Then
+		$aMsgs &= ($aMsgs = "" ? t("ERROR_TIME_FORMAT") : "  •  " & t("ERROR_TIME_FORMAT"))
+		GUICtrlSetColor($g_FieldCtrls.Item("WeekendTime"), 0xFF0000)
+		GUICtrlSetTip($g_FieldCtrls.Item("WeekendTime"), t("ERROR_TIME_FORMAT"))
+	Else
+		If $sWkdVal <> "" Then
+			GUICtrlSetColor($g_FieldCtrls.Item("WeekendTime"), 0x000000)
+			GUICtrlSetTip($g_FieldCtrls.Item("WeekendTime"), "")
+		EndIf
+	EndIf
+
+	If $g_ErrorAreaLabel <> 0 Then GUICtrlSetData($g_ErrorAreaLabel, $aMsgs)
+
+	GUICtrlSetState($idSaveBtn, ($allFilled ? $GUI_ENABLE : $GUI_DISABLE))
 EndFunc   ;==>CheckConfigFields
 
-Func SaveConfigGUI()
-	$meetingID = GUICtrlRead($idMeetingID)
-	$midweekDay = GUICtrlRead($idMidweekDay)
-	$midweekTime = GUICtrlRead($idMidweekTime)
-	$weekendDay = GUICtrlRead($idWeekendDay)
-	$weekendTime = GUICtrlRead($idWeekendTime)
+; WM_COMMAND handler to catch EN_CHANGE from Edit controls and validate live while typing
+Func _WM_COMMAND_EditChange($hWnd, $iMsg, $wParam, $lParam)
+	#forceref $hWnd, $iMsg, $lParam
+	Local $iCtrlId = BitAND($wParam, 0xFFFF)
+	Local $iNotify = BitShift($wParam, 16)
+	If $iNotify = $EN_CHANGE Then
+		; Trigger validation for any of our text inputs on each keystroke
+		For $sKey In $g_FieldCtrls.Keys
+			If $iCtrlId = $g_FieldCtrls.Item($sKey) Then
+				CheckConfigFields()
+				ExitLoop
+			EndIf
+		Next
+	EndIf
+	Return $GUI_RUNDEFMSG
+EndFunc
 
-	IniWrite($CONFIG_FILE, "ZoomSettings", "MeetingID", $meetingID)
-	IniWrite($CONFIG_FILE, "Meetings", "MidweekDay", $midweekDay)
-	IniWrite($CONFIG_FILE, "Meetings", "MidweekTime", $midweekTime)
-	IniWrite($CONFIG_FILE, "Meetings", "WeekendDay", $weekendDay)
-	IniWrite($CONFIG_FILE, "Meetings", "WeekendTime", $weekendTime)
+Func SaveConfigGUI()
+	$g_UserSettings.RemoveAll()
+	; Persist all known fields generically
+	For $sKey In $g_FieldCtrls.Keys
+		Local $ctrlId = $g_FieldCtrls.Item($sKey)
+		Local $val = StringStripWS(GUICtrlRead($ctrlId), 3)
+		; Convert day labels to numbers for specific keys
+		If ($sKey = "MidweekDay" Or $sKey = "WeekendDay") Then
+			If $g_DayLabelToNum.Exists($val) Then $val = String($g_DayLabelToNum.Item($val))
+		EndIf
+		$g_UserSettings.Add($sKey, $val)
+		IniWrite($CONFIG_FILE, _GetIniSectionForKey($sKey), $sKey, GetUserSetting($sKey))
+	Next
+
+	; Language from dropdown
+	Local $selDisplay = GUICtrlRead($idLanguagePicker)
+	Local $selLang = "en"
+	If $g_LangNameToCode.Exists($selDisplay) Then $selLang = $g_LangNameToCode.Item($selDisplay)
+	$g_UserSettings.Add("Language", $selLang)
+	IniWrite($CONFIG_FILE, "General", "Language", GetUserSetting("Language"))
+	$g_CurrentLang = $selLang
+	_InitDayLabelMaps() ; refresh day labels for new language
 
 	CloseConfigGUI()
 EndFunc   ;==>SaveConfigGUI
+
+; Map a setting key to its INI section
+Func _GetIniSectionForKey($sKey)
+	Switch $sKey
+		Case "MeetingID"
+			Return "ZoomSettings"
+		Case "MidweekDay", "MidweekTime", "WeekendDay", "WeekendTime"
+			Return "Meetings"
+		Case "Language"
+			Return "General"
+		Case Else
+			Return "ZoomStrings"
+	EndSwitch
+EndFunc   ;==>_GetIniSectionForKey
 
 Func CloseConfigGUI()
 	GUIDelete($g_ConfigGUI)
@@ -162,13 +425,25 @@ Func QuitApp()
 EndFunc   ;==>QuitApp
 
 Func LoadMeetingConfig()
-	$meetingID = IniRead($CONFIG_FILE, "ZoomSettings", "MeetingID", "")
-	$midweekDay = IniRead($CONFIG_FILE, "Meetings", "MidweekDay", "")
-	$midweekTime = IniRead($CONFIG_FILE, "Meetings", "MidweekTime", "")
-	$weekendDay = IniRead($CONFIG_FILE, "Meetings", "WeekendDay", "")
-	$weekendTime = IniRead($CONFIG_FILE, "Meetings", "WeekendTime", "")
+	$g_UserSettings.RemoveAll()
+	$g_UserSettings.Add("MeetingID", IniRead($CONFIG_FILE, "ZoomSettings", "MeetingID", ""))
+	$g_UserSettings.Add("MidweekDay", IniRead($CONFIG_FILE, "Meetings", "MidweekDay", ""))
+	$g_UserSettings.Add("MidweekTime", IniRead($CONFIG_FILE, "Meetings", "MidweekTime", ""))
+	$g_UserSettings.Add("WeekendDay", IniRead($CONFIG_FILE, "Meetings", "WeekendDay", ""))
+	$g_UserSettings.Add("WeekendTime", IniRead($CONFIG_FILE, "Meetings", "WeekendTime", ""))
+	$g_UserSettings.Add("HostToolsValue", IniRead($CONFIG_FILE, "ZoomStrings", "HostToolsValue", ""))
+	$g_UserSettings.Add("MuteAllValue", IniRead($CONFIG_FILE, "ZoomStrings", "MuteAllValue", ""))
+	$g_UserSettings.Add("YesValue", IniRead($CONFIG_FILE, "ZoomStrings", "YesValue", ""))
 
-	If $meetingID = "" Or $midweekDay = "" Or $midweekTime = "" Or $weekendDay = "" Or $weekendTime = "" Then
+	Local $lang = IniRead($CONFIG_FILE, "General", "Language", "")
+	If $lang = "" Then
+		$lang = "en"
+		IniWrite($CONFIG_FILE, "General", "Language", $lang)
+	EndIf
+	$g_UserSettings.Add("Language", $lang)
+	$g_CurrentLang = $lang
+
+	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Then
 		ShowConfigGUI()
 		While $g_ConfigGUI
 			Sleep(10)
@@ -191,7 +466,9 @@ Func TrayEvent()
 	EndSwitch
 EndFunc   ;==>TrayEvent
 
+_LoadTranslations()
 LoadMeetingConfig()
+_InitDayLabelMaps()
 
 Func ResponsiveSleep($s)
 	Local $elapsed = 0
@@ -222,14 +499,14 @@ While True
 
 	Global $timeNow = _NowTime(4) ; HH:MM
 
-	If $today = Number($midweekDay) Then
-		CheckMeetingWindow($midweekTime)
+	If $today = Number(GetUserSetting("MidweekDay")) Then
+		CheckMeetingWindow(GetUserSetting("MidweekTime"))
 		ResponsiveSleep(5)
-	ElseIf $today = Number($weekendDay) Then
-		CheckMeetingWindow($weekendTime)
+	ElseIf $today = Number(GetUserSetting("WeekendDay")) Then
+		CheckMeetingWindow(GetUserSetting("WeekendTime"))
 		ResponsiveSleep(5)
 	Else
-		Debug("Waiting for the next meeting day...", "INFO") ; Not a meeting day. Sleeping 1 hour.
+		Debug(t("INFO_WAITING"), "INFO") ; Not a meeting day. Sleeping 1 hour.
 		ResponsiveSleep(3600)
 	EndIf
 WEnd
@@ -251,12 +528,12 @@ Func CheckMeetingWindow($meetingTime)
 		If Not $g_PrePostSettingsConfigured Then
 			Local $zoomLaunched = _LaunchZoom()
 			If Not $zoomLaunched Then
-				Debug("Error launching Zoom", "ERROR")
+				Debug(t("ERROR_ZOOM_LAUNCH"), "ERROR")
 			Else
-				Debug("Configuring settings for before and after meetings...", "INFO")
+				Debug(t("INFO_CONFIG_BEFORE_AFTER_START"), "INFO")
 				_SetPreAndPostMeetingSettings()
 				$g_PrePostSettingsConfigured = True
-				Debug("Settings configured for before and after meetings.", "INFO")
+				Debug(t("INFO_CONFIG_BEFORE_AFTER_DONE"), "INFO")
 			EndIf
 		EndIf
 
@@ -265,12 +542,12 @@ Func CheckMeetingWindow($meetingTime)
 		If Not $g_DuringMeetingSettingsConfigured Then
 			Local $zoomExists = IsObj(_GetZoomWindow())
 			If Not $zoomExists Then
-				Debug("Zoom window not found", "ERROR")
+				Debug(t("ERROR_ZOOM_WINDOW_NOT_FOUND"), "ERROR")
 			Else
-				Debug("Meeting starting soon... Configuring settings.", "INFO")
+				Debug(t("INFO_MEETING_STARTING_SOON_CONFIG"), "INFO")
 				_SetDuringMeetingSettings()
 				$g_DuringMeetingSettingsConfigured = True
-				Debug("Settings configured for during the meeting.", "INFO")
+				Debug(t("INFO_CONFIG_DURING_MEETING_DONE"), "INFO")
 			EndIf
 		EndIf
 
@@ -278,15 +555,15 @@ Func CheckMeetingWindow($meetingTime)
 		; Meeting already started
 		Local $minutesAgo = $nowMin - $meetingMin
 		If $minutesAgo <= 120 Then
-			Debug("Meeting started " & $minutesAgo & " minute(s) ago.", "INFO")
+			Debug(t("INFO_MEETING_STARTED_AGO", $minutesAgo), "INFO")
 		Else
-			Debug("Outside of meeting window. Meeting started more than 2 hours ago.", "INFO")
+			Debug(t("INFO_OUTSIDE_MEETING_WINDOW"), "INFO")
 		EndIf
 
 	Else
 		; Too early - show countdown
 		Local $minutesLeft = $meetingMin - $nowMin
-		Debug("Meeting starting in " & $minutesLeft & " minute(s).", "INFO")
+		Debug(t("INFO_MEETING_STARTING_IN", $minutesLeft), "INFO")
 	EndIf
 EndFunc   ;==>CheckMeetingWindow
 
@@ -294,17 +571,17 @@ EndFunc   ;==>CheckMeetingWindow
 ; Launch Zoom
 ; -------------------------
 Func _LaunchZoom()
-	Debug("Launching Zoom...", "INFO")
+	Debug(t("INFO_ZOOM_LAUNCHING"), "INFO")
 
-	Local $meetingID = IniRead($CONFIG_FILE, "ZoomSettings", "MeetingID", "")
+	Local $meetingID = GetUserSetting("MeetingID")
 	If $meetingID = "" Then
-		Debug("Meeting ID not configured.", "ERROR")
+		Debug(t("ERROR_MEETING_ID_NOT_CONFIGURED"), "ERROR")
 		Return SetError(1, 0, 0)
 	EndIf
 
 	Local $zoomURL = "zoommtg://zoom.us/join?confno=" & $meetingID
 	ShellExecute($zoomURL)
-	Debug("Zoom launched: " & $meetingID, "INFO")
+	Debug(t("INFO_ZOOM_LAUNCHED") & ": " & $meetingID, "INFO")
 	ResponsiveSleep(10)
 	Return IsObj(_GetZoomWindow())
 EndFunc   ;==>_LaunchZoom
@@ -409,7 +686,7 @@ EndFunc   ;==>FindElementByPartialName
 
 Func _ClickElement($oElement, $ForceClick = False)
 	If Not IsObj($oElement) Then
-		Debug("Invalid element object.", "ERROR")
+		Debug(t("ERROR_INVALID_ELEMENT_OBJECT"), "ERROR")
 		Return False
 	EndIf
 
@@ -514,7 +791,7 @@ Func _ClickElement($oElement, $ForceClick = False)
 	EndIf
 
 	; All methods failed
-	Debug("Failed to click element: '" & $sElementName & "' - no suitable pattern found.", "ERROR")
+	Debug(t("ERROR_FAILED_CLICK_ELEMENT") & ": '" & $sElementName & "'", "ERROR")
 	Return False
 EndFunc   ;==>_ClickElement
 
@@ -522,9 +799,8 @@ Func _OpenHostTools()
 	If Not IsObj($oZoomWindow) Then Return False
 	Local $oHostMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
 	If Not IsObj($oHostMenu) Then
-		Local $oButton = FindElementByPartialName("Host tools", Default, $oZoomWindow)
+		Local $oButton = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oZoomWindow)
 		If Not _ClickElement($oButton) Then
-			Debug("Failed to click Host Tools.", "WARN")
 			Return False
 		EndIf
 	EndIf
@@ -533,23 +809,23 @@ Func _OpenHostTools()
 EndFunc   ;==>_OpenHostTools
 
 Func _CloseHostTools()
-	; Click on the main window to hide the Host tools menu
+	; Click on the main window to hide the open menu
 	_ClickElement($oZoomWindow, True)
 EndFunc   ;==>_CloseHostTools
 
 Func _OpenParticipantsPanel()
 	If Not IsObj($oZoomWindow) Then Return False
 	Local $ListType[1] = [$UIA_ListControlTypeId]
-	Local $oParticipantsPanel = FindElementByPartialName("Participant", $ListType, $oZoomWindow)
+	Local $oParticipantsPanel = FindElementByPartialName(GetUserSetting("ParticipantValue"), $ListType, $oZoomWindow)
 
 	If Not IsObj($oParticipantsPanel) Then
-		Local $oButton = FindElementByPartialName("Participant", Default, $oZoomWindow)
+		Local $oButton = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
 		If Not _ClickElement($oButton) Then
 			Debug("Failed to click Participants.", "WARN")
 			Return False
 		EndIf
 	EndIf
-	$oParticipantsPanel = FindElementByPartialName("Participant", $ListType, $oZoomWindow)
+	$oParticipantsPanel = FindElementByPartialName(GetUserSetting("ParticipantValue"), $ListType, $oZoomWindow)
 	Return $oParticipantsPanel
 EndFunc   ;==>_OpenParticipantsPanel
 
@@ -574,7 +850,7 @@ Func GetSecuritySettingsState($aSettings)
 			; Check for "unchecked" as whole word
 			$bEnabled = Not StringRegExp($sLabelLower, "\bunchecked\b")
 		Else
-			Debug("Setting '" & $sSetting & "' not found.", "ERROR")
+			Debug(t("ERROR_SETTING_NOT_FOUND") & ": '" & $sSetting & "'", "ERROR")
 		EndIf
 
 		Debug("Setting '" & $sSetting & "' is currently " & ($bEnabled ? "ENABLED" : "DISABLED"), "DEBUG")
@@ -644,7 +920,7 @@ Func ToggleFeed($feedType, $desiredState)
 			EndIf
 		EndIf
 	Else
-		Debug("Unknown feed type: " & $feedType, "ERROR")
+		Debug(t("ERROR_UNKNOWN_FEED_TYPE") & ": '" & $feedType & "'", "ERROR")
 	EndIf
 	ResponsiveSleep(1)
 EndFunc   ;==>ToggleFeed
@@ -674,7 +950,7 @@ Func MuteAll()
 		Return False
 	EndIf
 
-	Return DialogClick("zChangeNameWndClass", "Yes")
+	Return DialogClick("zChangeNameWndClass", GetUserSetting("YesValue"))
 EndFunc   ;==>MuteAll
 
 Func DialogClick($ClassName, $ButtonLabel)
@@ -682,7 +958,7 @@ Func DialogClick($ClassName, $ButtonLabel)
 	Local $oDialog = FindElementByClassName($ClassName)
 	Local $oButton = FindElementByPartialName($ButtonLabel, Default, $oDialog)
 	If _ClickElement($oButton) Then Return True
-	Debug("Confirmation 'Yes' not found.", "WARN")
+	Debug("Button '" & $ButtonLabel & "' not found.", "WARN")
 	Return False
 
 EndFunc   ;==>DialogClick
