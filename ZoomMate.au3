@@ -5,16 +5,19 @@
 #include <Date.au3>
 #include <StringConstants.au3>
 #include <TrayConstants.au3>
+#include <GuiMenu.au3>
 #include <GUIConstantsEx.au3>
 #include "Includes\UIA_Functions-a.au3"
 #include "Includes\CUIAutomation2.au3"
 
 Opt("MustDeclareVars", 1)
 Opt("GUIOnEventMode", 1)
+Opt("TrayMenuMode", 3) ; 1=default menu off, 2=no auto pause, 3=both
 
 ; Windows messages for per-keystroke validation
 Global Const $WM_COMMAND = 0x0111
 Global Const $EN_CHANGE = 0x0300
+Global Const $MF_BYCOMMAND = 0x00000000
 
 ; -------------------------
 ; Script configuration
@@ -155,7 +158,6 @@ Global $g_StatusMsg = "Idle"
 Global $g_TrayIcon = @ScriptDir & "\zoommate.ico" ; Place your custom icon here
 
 TraySetIcon($g_TrayIcon)
-TraySetClick($TRAY_CLICK_SECONDARYDOWN)
 
 Func UpdateTrayTooltip()
 	TraySetToolTip("ZoomMate: " & $g_StatusMsg)
@@ -187,6 +189,8 @@ Func ShowConfigGUI()
 
 	_InitDayLabelMaps()
 	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 460)
+
+	GUISetOnEvent($GUI_EVENT_CLOSE, "SaveConfigGUI", $g_ConfigGUI)
 
 	GUICtrlCreateLabel("Language:", 10, 160, 120, 20)
 	$idLanguagePicker = GUICtrlCreateCombo("", 140, 160, 160, 20)
@@ -280,6 +284,15 @@ Func _IsValidTime($s)
 	Return True
 EndFunc   ;==>_IsValidTime
 
+Func _EnableCloseButton($hWnd, $bEnable = True)
+	Local $hMenu = DllCall("user32.dll", "hwnd", "GetSystemMenu", "hwnd", $hWnd, "int", 0)[0]
+	If @error Or $hMenu = 0 Then Return SetError(1, 0, 0)
+
+	Local $iFlag = ($bEnable ? $MF_ENABLED : $MF_GRAYED)
+	DllCall("user32.dll", "int", "EnableMenuItem", "hwnd", $hMenu, "uint", $SC_CLOSE, "uint", BitOR($MF_BYCOMMAND, $iFlag))
+	Return 1
+EndFunc   ;==>_EnableCloseButton
+
 Func CheckConfigFields()
 	Local $allFilled = True
 	For $sKey In $g_FieldCtrls.Keys
@@ -360,6 +373,9 @@ Func CheckConfigFields()
 	If $g_ErrorAreaLabel <> 0 Then GUICtrlSetData($g_ErrorAreaLabel, $aMsgs)
 
 	GUICtrlSetState($idSaveBtn, ($allFilled ? $GUI_ENABLE : $GUI_DISABLE))
+
+	; also toggle close button availability
+	_EnableCloseButton($g_ConfigGUI, $allFilled)
 EndFunc   ;==>CheckConfigFields
 
 ; WM_COMMAND handler to catch EN_CHANGE from Edit controls and validate live while typing
@@ -451,7 +467,7 @@ Func LoadMeetingConfig()
 	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Then
 		ShowConfigGUI()
 		While $g_ConfigGUI
-			Sleep(10)
+			Sleep(100)
 		WEnd
 	EndIf
 EndFunc   ;==>LoadMeetingConfig
@@ -466,7 +482,17 @@ Func TrayEvent()
 		Case $TRAY_EVENT_PRIMARYDOWN ; Tray icon left-click
 			ShowConfigGUI()
 			While $g_ConfigGUI
-				Sleep(10)
+				Sleep(100)
+			WEnd
+		Case $TRAY_EVENT_SECONDARYDOWN ; Tray icon right-click
+			ShowConfigGUI()
+			While $g_ConfigGUI
+				Sleep(100)
+			WEnd
+		Case $TRAY_EVENT_PRIMARYDOUBLE     ; Tray icon double-click
+			ShowConfigGUI()
+			While $g_ConfigGUI
+				Sleep(100)
 			WEnd
 	EndSwitch
 EndFunc   ;==>TrayEvent
@@ -506,10 +532,8 @@ While True
 
 	If $today = Number(GetUserSetting("MidweekDay")) Then
 		CheckMeetingWindow(GetUserSetting("MidweekTime"))
-		ResponsiveSleep(5)
 	ElseIf $today = Number(GetUserSetting("WeekendDay")) Then
 		CheckMeetingWindow(GetUserSetting("WeekendTime"))
-		ResponsiveSleep(5)
 	Else
 		Debug(t("INFO_WAITING"), "INFO") ; Not a meeting day. Sleeping 1 hour.
 		ResponsiveSleep(3600)
@@ -520,6 +544,8 @@ WEnd
 ; -------------------------
 Func CheckMeetingWindow($meetingTime)
 	If $meetingTime = "" Then Return
+
+	Local $secondsToWait = 5     ; default 5 seconds between checks
 
 	Local $aParts = StringSplit($meetingTime, ":")
 	Local $hour = Number($aParts[1])
@@ -564,12 +590,13 @@ Func CheckMeetingWindow($meetingTime)
 		Else
 			Debug(t("INFO_OUTSIDE_MEETING_WINDOW"), "INFO", True)
 		EndIf
-
+		$secondsToWait = 600 ; Sleep 10 minutes if meeting already started
 	Else
 		; Too early - show countdown
 		Local $minutesLeft = $meetingMin - $nowMin
 		Debug(t("INFO_MEETING_STARTING_IN", $minutesLeft), "INFO", True)
 	EndIf
+	ResponsiveSleep($secondsToWait)
 EndFunc   ;==>CheckMeetingWindow
 
 ; -------------------------
