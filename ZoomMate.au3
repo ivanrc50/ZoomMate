@@ -807,6 +807,7 @@ Func _OpenHostTools()
 	If Not IsObj($oHostMenu) Then
 		Local $oButton = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oZoomWindow)
 		If Not _ClickElement($oButton) Then
+			Debug("Failed to click Host Tools.", "ERROR")
 			Return False
 		EndIf
 	EndIf
