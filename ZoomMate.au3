@@ -163,11 +163,14 @@ EndFunc   ;==>UpdateTrayTooltip
 
 Global $g_ConfigGUI = 0
 
-Func Debug($string, $type = "DEBUG")
+Func Debug($string, $type = "DEBUG", $noNotify = False)
 	If ($string) Then
 		ConsoleWrite("[" & $type & "] " & $string & @CRLF)
 		If $type = "INFO" Or $type = "ERROR" Then
 			$g_StatusMsg = $string
+			If Not $noNotify Then
+				TrayTip("ZoomMate", $string, 5, ($type = "INFO" ? 1 : 3))
+			EndIf
 		EndIf
 		If $type = "ERROR" Then
 			TraySetIcon($g_TrayIcon, 1) ; Error icon
@@ -199,15 +202,16 @@ Func ShowConfigGUI()
 	_AddTextInputField("WeekendTime", t("LABEL_WEEKEND_TIME"), 10, 130, 200, 130, 100)
 
 	_AddTextInputField("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 190, 140, 190, 160)
-	_AddTextInputField("MuteAllValue", t("LABEL_MUTE_All"), 10, 220, 140, 220, 160)
-	_AddTextInputField("YesValue", t("LABEL_YES"), 10, 250, 140, 250, 160)
+	_AddTextInputField("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 220, 140, 220, 160)
+	_AddTextInputField("MuteAllValue", t("LABEL_MUTE_All"), 10, 250, 140, 250, 160)
+	_AddTextInputField("YesValue", t("LABEL_YES"), 10, 280, 140, 280, 160)
 
 	; Error area just above buttons (full width)
-	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 275, 300, 20)
+	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 310, 300, 20)
 	GUICtrlSetColor($g_ErrorAreaLabel, 0xFF0000)
 
-	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 300, 80, 30)
-	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 300, 80, 30)
+	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 340, 80, 30)
+	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 340, 80, 30)
 
 	; Save button is disabled by default
 	GUICtrlSetState($idSaveBtn, $GUI_DISABLE)
@@ -373,7 +377,7 @@ Func _WM_COMMAND_EditChange($hWnd, $iMsg, $wParam, $lParam)
 		Next
 	EndIf
 	Return $GUI_RUNDEFMSG
-EndFunc
+EndFunc   ;==>_WM_COMMAND_EditChange
 
 Func SaveConfigGUI()
 	$g_UserSettings.RemoveAll()
@@ -432,6 +436,7 @@ Func LoadMeetingConfig()
 	$g_UserSettings.Add("WeekendDay", IniRead($CONFIG_FILE, "Meetings", "WeekendDay", ""))
 	$g_UserSettings.Add("WeekendTime", IniRead($CONFIG_FILE, "Meetings", "WeekendTime", ""))
 	$g_UserSettings.Add("HostToolsValue", IniRead($CONFIG_FILE, "ZoomStrings", "HostToolsValue", ""))
+	$g_UserSettings.Add("ParticipantValue", IniRead($CONFIG_FILE, "ZoomStrings", "ParticipantValue", ""))
 	$g_UserSettings.Add("MuteAllValue", IniRead($CONFIG_FILE, "ZoomStrings", "MuteAllValue", ""))
 	$g_UserSettings.Add("YesValue", IniRead($CONFIG_FILE, "ZoomStrings", "YesValue", ""))
 
@@ -443,7 +448,7 @@ Func LoadMeetingConfig()
 	$g_UserSettings.Add("Language", $lang)
 	$g_CurrentLang = $lang
 
-	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Then
+	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Then
 		ShowConfigGUI()
 		While $g_ConfigGUI
 			Sleep(10)
@@ -555,15 +560,15 @@ Func CheckMeetingWindow($meetingTime)
 		; Meeting already started
 		Local $minutesAgo = $nowMin - $meetingMin
 		If $minutesAgo <= 120 Then
-			Debug(t("INFO_MEETING_STARTED_AGO", $minutesAgo), "INFO")
+			Debug(t("INFO_MEETING_STARTED_AGO", $minutesAgo), "INFO", True)
 		Else
-			Debug(t("INFO_OUTSIDE_MEETING_WINDOW"), "INFO")
+			Debug(t("INFO_OUTSIDE_MEETING_WINDOW"), "INFO", True)
 		EndIf
 
 	Else
 		; Too early - show countdown
 		Local $minutesLeft = $meetingMin - $nowMin
-		Debug(t("INFO_MEETING_STARTING_IN", $minutesLeft), "INFO")
+		Debug(t("INFO_MEETING_STARTING_IN", $minutesLeft), "INFO", True)
 	EndIf
 EndFunc   ;==>CheckMeetingWindow
 
@@ -685,8 +690,9 @@ Func FindElementByPartialName($sPartial, $aControlTypes = Default, $oParent = De
 EndFunc   ;==>FindElementByPartialName
 
 Func _ClickElement($oElement, $ForceClick = False)
+	ResponsiveSleep(0.5) ; brief pause to ensure UI is ready
 	If Not IsObj($oElement) Then
-		Debug(t("ERROR_INVALID_ELEMENT_OBJECT"), "ERROR")
+		Debug(t("ERROR_INVALID_ELEMENT_OBJECT"), "WARN")
 		Return False
 	EndIf
 
@@ -811,6 +817,7 @@ EndFunc   ;==>_OpenHostTools
 Func _CloseHostTools()
 	; Click on the main window to hide the open menu
 	_ClickElement($oZoomWindow, True)
+	Debug("Host tools menu closed.", "UIA")
 EndFunc   ;==>_CloseHostTools
 
 Func _OpenParticipantsPanel()
@@ -821,11 +828,16 @@ Func _OpenParticipantsPanel()
 	If Not IsObj($oParticipantsPanel) Then
 		Local $oButton = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
 		If Not _ClickElement($oButton) Then
-			Debug("Failed to click Participants.", "WARN")
+			Debug("Failed to click Participants.", "ERROR")
 			Return False
 		EndIf
 	EndIf
 	$oParticipantsPanel = FindElementByPartialName(GetUserSetting("ParticipantValue"), $ListType, $oZoomWindow)
+	If IsObj($oParticipantsPanel) Then
+		Debug("Participants panel opened.", "UIA")
+	Else
+		Debug("Failed to open Participants panel.", "ERROR")
+	EndIf
 	Return $oParticipantsPanel
 EndFunc   ;==>_OpenParticipantsPanel
 
@@ -920,7 +932,7 @@ Func ToggleFeed($feedType, $desiredState)
 			EndIf
 		EndIf
 	Else
-		Debug(t("ERROR_UNKNOWN_FEED_TYPE") & ": '" & $feedType & "'", "ERROR")
+		Debug(t("ERROR_UNKNOWN_FEED_TYPE") & ": '" & $feedType & "'", "WARN")
 	EndIf
 	ResponsiveSleep(1)
 EndFunc   ;==>ToggleFeed
@@ -942,9 +954,10 @@ Func _SetDuringMeetingSettings()
 EndFunc   ;==>_SetDuringMeetingSettings
 
 Func MuteAll()
+	Debug("Attempting to 'Mute All' participants.")
 	Local $oParticipantsPanel = _OpenParticipantsPanel()
 	If Not IsObj($oParticipantsPanel) Then Return False
-	Local $oButton = FindElementByPartialName("Mute all", Default, $oZoomWindow)
+	Local $oButton = FindElementByPartialName(GetUserSetting("MuteAllValue"), Default, $oZoomWindow)
 	If Not _ClickElement($oButton) Then
 		Debug("'Mute all' button not found.", "WARN")
 		Return False
@@ -967,7 +980,6 @@ Func _GetZoomStatus()
 	Local $aSettings[2] = ["Unmute themselves", "Share screen"]
 	Local $oStates = GetSecuritySettingsState($aSettings)
 
-	; Example of accessing values
 	For $sKey In $oStates.Keys
 		Debug($sKey & " = " & ($oStates.Item($sKey) ? "ENABLED" : "DISABLED"), "ZOOM STATUS")
 	Next
