@@ -43,6 +43,9 @@ Global Const $CONFIG_FILE = @ScriptDir & "\zoom_config.ini"
 Global $g_PrePostSettingsConfigured = False    ; Tracks if pre/post meeting settings are applied
 Global $g_DuringMeetingSettingsConfigured = False ; Tracks if during-meeting settings are applied
 
+; Notification control
+Global $g_InitialNotificationWasShown = False ; Prevents repeated initial notifications
+
 ; User settings storage (Dictionary object for key-value pairs)
 Global $g_UserSettings = ObjCreate("Scripting.Dictionary")
 
@@ -250,6 +253,7 @@ Func LoadMeetingConfig()
 	$g_UserSettings.Add("HostToolsValue", IniRead($CONFIG_FILE, "ZoomStrings", "HostToolsValue", ""))
 	$g_UserSettings.Add("ParticipantValue", IniRead($CONFIG_FILE, "ZoomStrings", "ParticipantValue", ""))
 	$g_UserSettings.Add("MuteAllValue", IniRead($CONFIG_FILE, "ZoomStrings", "MuteAllValue", ""))
+	$g_UserSettings.Add("MoreMeetingControlsValue", IniRead($CONFIG_FILE, "ZoomStrings", "MoreMeetingControlsValue", ""))
 	$g_UserSettings.Add("YesValue", IniRead($CONFIG_FILE, "ZoomStrings", "YesValue", ""))
 
 	; Load language setting
@@ -268,6 +272,11 @@ Func LoadMeetingConfig()
 		While $g_ConfigGUI
 			Sleep(100)
 		WEnd
+	Else
+		Debug(t("INFO_CONFIG_LOADED"), "INFO")
+		; print meeting schedule for verification
+		Debug("Midweek Meeting: " & t("DAY_" & GetUserSetting("MidweekDay")) & " at " & GetUserSetting("MidweekTime"), "INFO", True)
+		Debug("Weekend Meeting: " & t("DAY_" & GetUserSetting("WeekendDay")) & " at " & GetUserSetting("WeekendTime"), "INFO", True)
 	EndIf
 EndFunc   ;==>LoadMeetingConfig
 
@@ -583,7 +592,12 @@ Func SaveConfigGUI()
 	$g_UserSettings.Add("Language", $selLang)
 	IniWrite($CONFIG_FILE, "General", "Language", GetUserSetting("Language"))
 	$g_CurrentLang = $selLang
+
 	_InitDayLabelMaps() ; Refresh day labels for new language
+	$g_PrePostSettingsConfigured = False ; Reset pre/post meeting settings flag
+	$g_DuringMeetingSettingsConfigured = False ; Reset during-meeting settings flag
+	$g_InitialNotificationWasShown = False ; Reset initial notification flag
+	LoadMeetingConfig() ; Reload config to apply any meeting schedule changes
 
 	CloseConfigGUI()
 EndFunc   ;==>SaveConfigGUI
@@ -708,6 +722,37 @@ Func _GetZoomWindow()
 	Return $oZoomWindow
 EndFunc   ;==>_GetZoomWindow
 
+; Focuses the main Zoom meeting window
+; @return Boolean - True if successful, False otherwise
+Func FocusZoomWindow()
+	Local $oZoomWindow = _GetZoomWindow()
+	If Not IsObj($oZoomWindow) Then
+		Debug("Unable to obtain Zoom window.", "ERROR")
+		Return False
+	EndIf
+
+	; Get the native HWND property from the UIA element
+	Local $hWnd
+	$oZoomWindow.GetCurrentPropertyValue($UIA_NativeWindowHandlePropertyId, $hWnd)
+
+	If $hWnd And $hWnd <> 0 Then
+		; Convert to HWND pointer
+		$hWnd = Ptr($hWnd)
+		WinActivate($hWnd)
+		If WinWaitActive($hWnd, "", 3) Then
+			Debug("Zoom window activated and focused.", "SUCCESS")
+			Return True
+		Else
+			Debug("Zoom window did not become active within timeout.", "WARN")
+		EndIf
+	Else
+		Debug("Zoom window has no valid HWND property.", "ERROR")
+	EndIf
+
+	Return False
+EndFunc   ;==>FocusZoomWindow
+
+
 ; Finds UI element by partial name match across multiple control types
 ; @param $sPartial - Partial text to search for in element names
 ; @param $aControlTypes - Array of control types to search (default: button and menu item)
@@ -760,9 +805,10 @@ Func FindElementByPartialName($sPartial, $aControlTypes = Default, $oParent = De
 					; Get element name and check for partial match
 					Local $sName
 					$oElement.GetCurrentPropertyValue($UIA_NamePropertyId, $sName)
+					Debug("Element found with name: '" & $sName & "'", "DEBUG")
 
 					If StringInStr($sName, $sPartial, $STR_NOCASESENSEBASIC) > 0 Then
-						Debug("Element found with name: '" & $sName & "'", "DEBUG")
+						Debug("Matching element found with name: '" & $sName & "'", "DEBUG")
 						Return $oElement
 					EndIf
 				EndIf
@@ -774,6 +820,109 @@ Func FindElementByPartialName($sPartial, $aControlTypes = Default, $oParent = De
 	Return 0
 EndFunc   ;==>FindElementByPartialName
 
+
+Func FindElementByControlType($iControlType, $oParent = Default)
+	Debug("Searching for ALL elements of control type: " & $iControlType, "DEBUG")
+
+	Local $oSearchParent = $oDesktop
+	If $oParent <> Default Then
+		$oSearchParent = $oParent
+		Debug("Using custom parent element for search", "DEBUG")
+	Else
+		Debug("Using desktop as search parent", "DEBUG")
+	EndIf
+
+	Local $pCondition
+	$oUIAutomation.CreatePropertyCondition($UIA_ControlTypePropertyId, $iControlType, $pCondition)
+
+	Local $pElements
+	; 🔑 Use Descendants instead of Subtree
+	$oSearchParent.FindAll($TreeScope_Descendants, $pCondition, $pElements)
+
+	Local $oElements = ObjCreateInterface($pElements, $sIID_IUIAutomationElementArray, $dtagIUIAutomationElementArray)
+	If Not IsObj($oElements) Then
+		Debug("Failed to create element array object", "ERROR")
+		Return 0
+	EndIf
+
+	Local $count
+	$oElements.Length($count)
+
+	If $count = 0 Then
+		Debug("No elements found for control type: " & $iControlType, "WARN")
+		Return 0
+	EndIf
+
+	Debug("Found " & $count & " element(s) of control type " & $iControlType, "DEBUG")
+
+	; If only one element, return it directly
+	If $count = 1 Then
+		Local $pElem
+		$oElements.GetElement(0, $pElem)
+		Local $oElem = ObjCreateInterface($pElem, $sIID_IUIAutomationElement, $dtagIUIAutomationElement)
+
+		Local $sName
+		$oElem.GetCurrentPropertyValue($UIA_NamePropertyId, $sName)
+		Debug("Single element name: " & $sName, "DEBUG")
+
+		Return $oElem
+	EndIf
+
+	; Otherwise, print hierarchy recursively
+	For $i = 0 To $count - 1
+		Local $pElement
+		$oElements.GetElement($i, $pElement)
+
+		Local $oElement = ObjCreateInterface($pElement, $sIID_IUIAutomationElement, $dtagIUIAutomationElement)
+		If IsObj($oElement) Then
+			; Get element name and log it
+			$sName = GetElementName($oElement)
+			Debug("Element #" & $i & " name: '" & $sName & "'", "INFO")
+
+			; Optional: recursive tree print
+			_PrintElementTree($oElement, 1)
+		EndIf
+	Next
+
+	Return 0
+EndFunc   ;==>FindElementByControlType
+
+
+
+; Recursively prints element name + children
+Func _PrintElementTree($oElem, $level = 0)
+	If Not IsObj($oElem) Then Return
+
+	; Get element name
+	Local $sName = ""
+	$oElem.GetCurrentPropertyValue($UIA_NamePropertyId, $sName)
+
+	; Print with indentation
+	Local $indent = StringFormat("%" & ($level * 2) & "s", "")
+	Debug($indent & "- " & $sName, "TREE")
+
+	; Get children (no condition)
+	Local $pChildren
+	$oElem.FindAll($TreeScope_Children, 0, $pChildren)
+
+	Local $oChildren = ObjCreateInterface($pChildren, $sIID_IUIAutomationElementArray, $dtagIUIAutomationElementArray)
+	If Not IsObj($oChildren) Then Return
+
+	Local $childCount
+	$oChildren.Length($childCount)
+
+	For $i = 0 To $childCount - 1
+		Local $pChild
+		$oChildren.GetElement($i, $pChild)
+
+		Local $oChild = ObjCreateInterface($pChild, $sIID_IUIAutomationElement, $dtagIUIAutomationElement)
+		If IsObj($oChild) Then
+			_PrintElementTree($oChild, $level + 1)
+		EndIf
+	Next
+EndFunc   ;==>_PrintElementTree
+
+
 ; ================================================================================================
 ; UI ELEMENT INTERACTION FUNCTIONS
 ; ================================================================================================
@@ -782,7 +931,7 @@ EndFunc   ;==>FindElementByPartialName
 ; @param $oElement - Element to click
 ; @param $ForceClick - If True, forces mouse click method
 ; @return Boolean - True if successful, False otherwise
-Func _ClickElement($oElement, $ForceClick = False)
+Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False)
 	ResponsiveSleep(0.5) ; Brief pause to ensure UI is ready
 	If Not IsObj($oElement) Then
 		Debug(t("ERROR_INVALID_ELEMENT_OBJECT"), "WARN")
@@ -790,18 +939,20 @@ Func _ClickElement($oElement, $ForceClick = False)
 	EndIf
 
 	; Get element name for debugging
-	Local $sElementName = ""
-	$oElement.GetCurrentPropertyValue($UIA_NamePropertyId, $sElementName)
+	Local $sElementName = GetElementName($oElement)
 	Debug("Attempting to click element: '" & $sElementName & "'", "DEBUG")
 
 	; Method 0: Force mouse click (only when requested)
 	If $ForceClick Then
-		Debug("Forcing click.", "DEBUG")
-		UIA_MouseClick($oElement)
-		Debug("Element clicked via Mouse Click.", "SUCCESS")
+		; Method 0.5: Force mouse click by bounding rectangle (only when requested)
+		If $BoundingRectangle Then
+			ClickByBoundingRectangle($oElement)
+			Debug("Element clicked via bounding rectangle.", "SUCCESS")
+		Else
+			UIA_MouseClick($oElement)
+			Debug("Element clicked via UIA_MouseClick.", "SUCCESS")
+		EndIf
 		Return True
-	Else
-		Debug("Skipping Method 0 (Mouse Click) for non-menu item.", "DEBUG")
 	EndIf
 
 	; Method 1: Try Invoke Pattern (works for most buttons)
@@ -857,41 +1008,175 @@ Func _ClickElement($oElement, $ForceClick = False)
 	EndIf
 
 	; Method 5: Fallback - Mouse click at element center
-	Local $tRect
-	$oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $tRect)
-	If $tRect Then
-		; Parse bounding rectangle (format: "left,top,width,height")
-		Local $aRect = StringSplit($tRect, ",")
-		If $aRect[0] >= 4 Then
-			Local $iLeft = Number($aRect[1])
-			Local $iTop = Number($aRect[2])
-			Local $iWidth = Number($aRect[3])
-			Local $iHeight = Number($aRect[4])
-
-			Local $iCenterX = $iLeft + ($iWidth / 2)
-			Local $iCenterY = $iTop + ($iHeight / 2)
-
-			Debug("Using mouse click fallback at position: " & $iCenterX & "," & $iCenterY & " for: '" & $sElementName & "'", "DEBUG")
-
-			; Ensure element is clickable before attempting
-			Local $bIsEnabled, $bIsOffscreen
-			$oElement.GetCurrentPropertyValue($UIA_IsEnabledPropertyId, $bIsEnabled)
-			$oElement.GetCurrentPropertyValue($UIA_IsOffscreenPropertyId, $bIsOffscreen)
-
-			If $bIsEnabled And Not $bIsOffscreen Then
-				MouseClick("left", $iCenterX, $iCenterY, 1, 0)
-				Debug("Element clicked via mouse at center.", "SUCCESS")
-				Return True
-			Else
-				Debug("Element not clickable - Enabled: " & $bIsEnabled & ", Offscreen: " & $bIsOffscreen, "WARN")
-			EndIf
-		EndIf
-	EndIf
+	ClickByBoundingRectangle($oElement)
 
 	; All click methods failed
 	Debug(t("ERROR_FAILED_CLICK_ELEMENT") & ": '" & $sElementName & "'", "ERROR")
 	Return False
 EndFunc   ;==>_ClickElement
+
+Func ClickByBoundingRectangle($oElement)
+	; Method 0.1: Click by bounding rectangle center
+	Local $sElementName = GetElementName($oElement)
+	Local $tRect
+	$oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $tRect)
+	UIA_GetArrayPropertyValueAsString($tRect)
+	Debug("Element bounding rectangle: " & $tRect, "DEBUG")
+	If Not $tRect Then
+		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
+		Return False
+	EndIf
+
+	Local $aRect = StringSplit($tRect, ",")
+	If $aRect[0] < 4 Then
+		Debug("Invalid rectangle format for: '" & $sElementName & "'", "ERROR")
+		Return False
+	EndIf
+
+	Local $iLeft = Number($aRect[1])
+	Local $iTop = Number($aRect[2])
+	Local $iWidth = Number($aRect[3])
+	Local $iHeight = Number($aRect[4])
+
+	Local $iCenterX = $iLeft + ($iWidth / 2)
+	Local $iCenterY = $iTop + ($iHeight / 2)
+
+	Debug("Using mouse click fallback at position: " & $iCenterX & "," & $iCenterY & " for: '" & $sElementName & "'", "DEBUG")
+
+	; Ensure element is clickable before attempting
+	Local $bIsEnabled, $bIsOffscreen
+	$oElement.GetCurrentPropertyValue($UIA_IsEnabledPropertyId, $bIsEnabled)
+	$oElement.GetCurrentPropertyValue($UIA_IsOffscreenPropertyId, $bIsOffscreen)
+
+	If $bIsEnabled And Not $bIsOffscreen Then
+		MouseClick("primary", $iCenterX, $iCenterY, 1, 0)
+		Debug("Element clicked via mouse at center.", "SUCCESS")
+		Return True
+	Else
+		Debug("Element not clickable - Enabled: " & $bIsEnabled & ", Offscreen: " & $bIsOffscreen, "WARN")
+		Return False
+	EndIf
+EndFunc   ;==>ClickByBoundingRectangle
+
+
+Func GetElementName($oElement)
+	Local $sName = ""
+	If IsObj($oElement) Then
+		$oElement.GetCurrentPropertyValue($UIA_NamePropertyId, $sName)
+	EndIf
+	Return $sName
+EndFunc   ;==>GetElementName
+
+
+; Hovers over a UI element by moving the mouse to its center
+; @param $oElement - The UIA element object
+; @param $iHoverTime - Time in milliseconds to hold the hover (default: 1000ms)
+; @return Boolean - True if successful, False otherwise
+Func _HoverElement($oElement, $iHoverTime = 1000, $SlightOffset = False)
+	ResponsiveSleep(0.3) ; Small buffer before hover
+	If Not IsObj($oElement) Then
+		Debug("Invalid element passed to _HoverElement", "WARN")
+		Return False
+	EndIf
+
+	; Get element name for debugging
+	Local $sElementName = GetElementName($oElement)
+	Debug("Attempting to hover element: '" & $sElementName & "'", "DEBUG")
+
+	; Get bounding rectangle
+	Local $tRect
+	$oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $tRect)
+	UIA_GetArrayPropertyValueAsString($tRect)
+	Debug("Element bounding rectangle: " & $tRect, "DEBUG")
+	If Not $tRect Then
+		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
+		Return False
+	EndIf
+
+	Local $aRect = StringSplit($tRect, ",")
+	If $aRect[0] < 4 Then
+		Debug("Invalid rectangle format for: '" & $sElementName & "'", "ERROR")
+		Return False
+	EndIf
+
+	Local $iLeft = Number($aRect[1])
+	Local $iTop = Number($aRect[2])
+	Local $iWidth = Number($aRect[3])
+	Local $iHeight = Number($aRect[4])
+
+	Local $iCenterX = $iLeft + ($iWidth / 2)
+	Local $iCenterY = $iTop + ($iHeight / 2)
+
+	If $SlightOffset Then
+		; Add slight random offset to avoid exact center (may help with some UI elements)
+		Local $iOffsetX = Random(2, 5, 1)
+		Local $iOffsetY = Random(-5, -2, 1)
+		$iCenterX += $iOffsetX
+		$iCenterY += $iOffsetY
+		Debug("Applying slight offset to hover position: " & $iOffsetX & "," & $iOffsetY, "DEBUG")
+	EndIf
+
+	Debug("Hovering at: " & $iCenterX & "," & $iCenterY & " for " & $iHoverTime & "ms", "DEBUG")
+
+	; Move mouse to center of element and hold position
+	MouseMove($iCenterX, $iCenterY, 0)
+	Sleep($iHoverTime)
+
+	Debug("Hover completed on element: '" & $sElementName & "'", "SUCCESS")
+	Return True
+EndFunc   ;==>_HoverElement
+
+Func _MoveMouseToStartOfElement($oElement, $Click = False)
+	ResponsiveSleep(0.3) ; Small buffer before move
+	If Not IsObj($oElement) Then
+		Debug("Invalid element passed to _MoveMouseToStartOfElement", "WARN")
+		Return False
+	EndIf
+
+	; Get element name for debugging
+	Local $sElementName = GetElementName($oElement)
+	Debug("Attempting to move mouse to start of element: '" & $sElementName & "'", "DEBUG")
+
+	; Get bounding rectangle
+	Local $tRect
+	$oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $tRect)
+	UIA_GetArrayPropertyValueAsString($tRect)
+	Debug("Element bounding rectangle: " & $tRect, "DEBUG")
+	If Not $tRect Then
+		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
+		Return False
+	EndIf
+
+	Local $aRect = StringSplit($tRect, ",")
+	If $aRect[0] < 4 Then
+		Debug("Invalid rectangle format for: '" & $sElementName & "'", "ERROR")
+		Return False
+	EndIf
+
+	Local $iLeft = Number($aRect[1])
+	Local $iTop = Number($aRect[2])
+;~ Local $iWidth = Number($aRect[3])
+	Local $iHeight = Number($aRect[4])
+
+	; Move mouse to start (left edge, vertically centered)
+	Local $iStartX = $iLeft + 5 ; Slight offset from left edge
+	Local $iStartY = $iTop + ($iHeight / 2)
+
+	Debug("Moving mouse to start position: " & $iStartX & "," & $iStartY, "DEBUG")
+
+	; Move mouse to start of element
+	MouseMove($iStartX, $iStartY, 0)
+	Sleep(200) ; Brief pause after move
+	Debug("Mouse moved to start of element: '" & $sElementName & "'", "SUCCESS")
+
+	If $Click Then
+		MouseClick("primary", $iStartX, $iStartY, 1, 0)
+		Debug("Element clicked at start position.", "SUCCESS")
+	EndIf
+
+	Return True
+EndFunc   ;==>_MoveMouseToStartOfElement
+
 
 ; ================================================================================================
 ; ZOOM-SPECIFIC UI INTERACTION FUNCTIONS
@@ -906,8 +1191,38 @@ Func _OpenHostTools()
 	Local $oHostMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
 	If Not IsObj($oHostMenu) Then
 		; Menu not open, find and click the Host Tools button
-		Local $oButton = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oZoomWindow)
-		If Not _ClickElement($oButton) Then
+		Local $oHostToolsButton = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oZoomWindow)
+
+
+		; Maybe the Zoom window is small, look for the "More" button first
+		If Not IsObj($oHostToolsButton) Then
+			Debug("Host Tools button not found, looking for 'More' button.", "DEBUG")
+			Local $oMoreMenu = GetMoreMenu()
+			If Not IsObj($oMoreMenu) Then
+				Return False
+			EndIf
+
+			; Now look for the Host Tools button again in the More menu
+			Local $oHostToolsMenuItem = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oMoreMenu)
+			If IsObj($oHostToolsMenuItem) Then
+				Debug("Found Host Tools menu item. Hovering it to open submenu.", "DEBUG")
+				If _HoverElement($oHostToolsMenuItem, 500) Then
+					; Return the now-open host menu
+					$oHostMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
+					Return $oHostMenu
+				Else
+					Debug("Failed to click Participants menu item in More menu.", "ERROR")
+					Return False
+				EndIf
+			Else
+				Debug("Host Tools button still not found after clicking 'More'.", "ERROR")
+				Return False
+			EndIf
+		EndIf
+
+
+
+		If Not _ClickElement($oHostToolsButton) Then
 			Debug("Failed to click Host Tools.", "ERROR")
 			Return False
 		EndIf
@@ -920,9 +1235,42 @@ EndFunc   ;==>_OpenHostTools
 
 ; Closes the Host Tools menu by clicking on the main window
 Func _CloseHostTools()
-	_ClickElement($oZoomWindow, True)
+	_MoveMouseToStartOfElement($oZoomWindow, True) ; Click at start of window to ensure menu closes
 	Debug("Host tools menu closed.", "UIA")
 EndFunc   ;==>_CloseHostTools
+
+Func GetMoreMenu()
+	; Opens the "More" menu in Zoom if available
+	If Not IsObj($oZoomWindow) Then Return False
+
+	Local $oMoreMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
+
+	If Not IsObj($oMoreMenu) Then
+		; Menu not open, find and click the More button
+		Debug("More menu not open, attempting to open.", "DEBUG")
+		Local $oMoreButton = FindElementByPartialName(GetUserSetting("MoreMeetingControlsValue"), Default, $oZoomWindow)
+		If Not IsObj($oMoreButton) Then
+			Debug("Failed to find More button.", "ERROR")
+			Return False
+		EndIf
+		Debug("Clicking More button to open menu.", "DEBUG")
+		If Not _ClickElement($oMoreButton, True) Then
+			Debug("Failed to click More button.", "ERROR")
+			Return False
+		EndIf
+		; Wait briefly for the More menu to open
+		ResponsiveSleep(0.5)
+	EndIf
+
+	; Return the now-open More menu
+	$oMoreMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
+	If IsObj($oMoreMenu) Then
+		Debug("More menu opened.", "UIA")
+	Else
+		Debug("Failed to open More menu.", "ERROR")
+	EndIf
+	Return $oMoreMenu
+EndFunc   ;==>GetMoreMenu
 
 ; Opens the Participants panel in Zoom
 ; @return Object - Participants panel object or False if failed
@@ -934,10 +1282,50 @@ Func _OpenParticipantsPanel()
 
 	If Not IsObj($oParticipantsPanel) Then
 		; Panel not open, find and click the Participants button
-		Local $oButton = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
-		If Not _ClickElement($oButton) Then
-			Debug("Failed to click Participants.", "ERROR")
-			Return False
+		Debug("Participants panel not open, attempting to open.", "UIA")
+		Local $oMainParticipantsButton = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
+		; Maybe the Zoom window is small, look for the "More" button first
+		If Not IsObj($oMainParticipantsButton) Then
+			Debug("Participants button not found, looking for 'More' button.", "DEBUG")
+			Local $oMoreMenu = GetMoreMenu()
+			If Not IsObj($oMoreMenu) Then
+				Debug("Failed to open 'More' menu to find Participants button.", "ERROR")
+				Return False
+			EndIf
+
+			; Now look for the Participants button again in the More menu
+			Local $oParticipantsMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oMoreMenu)
+			If IsObj($oParticipantsMenuItem) Then
+				Debug("Found Participants menu item. Hovering it to open submenu.", "DEBUG")
+				$oParticipantsMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oMoreMenu)
+				If _HoverElement($oParticipantsMenuItem, 1200) Then         ; 1.2s hover to ensure submenu appears
+					; Now look for the Participants button again in the submenu
+					Debug("Looking for Participants button again in submenu.", "DEBUG")
+					Local $oParticipantsSubMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
+					If IsObj($oParticipantsSubMenuItem) Then
+						Debug("Final Participants button found. Clicking it.", "DEBUG")
+						_HoverElement($oParticipantsSubMenuItem, 500)
+						_MoveMouseToStartOfElement($oParticipantsSubMenuItem, True)
+						ResponsiveSleep(0.5) ; Move mouse to start of element and click to avoid hover issues
+					Else
+						Debug("Participants button still not found after clicking 'More'.", "ERROR")
+						Return False
+					EndIf
+				Else
+					Debug("Failed to click Participants menu item in More menu.", "ERROR")
+					Return False
+				EndIf
+			Else
+				Debug("Participants button still not found after clicking 'More'.", "ERROR")
+				Return False
+			EndIf
+		Else
+			Debug("Participants button found directly; clicking.", "DEBUG")
+			; Click the Participants button
+			If Not _ClickElement($oMainParticipantsButton) Then
+				Debug("Failed to click Participants.", "ERROR")
+				Return False
+			EndIf
 		EndIf
 	EndIf
 
@@ -1010,7 +1398,8 @@ Func SetSecuritySetting($sSetting, $bDesired)
 
 	; Only click if state needs to change
 	If $bEnabled <> $bDesired Then
-		_ClickElement($oSetting, True)
+		_HoverElement($oSetting, 50)
+		_MoveMouseToStartOfElement($oSetting, True) ; Click at start of element to ensure change
 		Debug("Toggled setting '" & $sSetting & "'", "SETTING CHANGE")
 	Else
 		_CloseHostTools()
@@ -1132,6 +1521,7 @@ EndFunc   ;==>_LaunchZoom
 ; - Disables screen sharing permission
 ; - Turns off host audio and video
 Func _SetPreAndPostMeetingSettings()
+	FocusZoomWindow()               ; Ensure Zoom window is focused
 	SetSecuritySetting("Unmute", True)          ; Allow participants to unmute
 	SetSecuritySetting("Share screen", False)   ; Prevent screen sharing
 	ToggleFeed("Audio", False)                  ; Turn off host audio
@@ -1144,6 +1534,7 @@ EndFunc   ;==>_SetPreAndPostMeetingSettings
 ; - Mutes all participants
 ; - Turns on host audio and video
 Func _SetDuringMeetingSettings()
+	FocusZoomWindow()                          ; Ensure Zoom window is focused
 	SetSecuritySetting("Unmute", False)         ; Prevent participant self-unmute
 	SetSecuritySetting("Share screen", False)   ; Prevent screen sharing
 	MuteAll()                                   ; Mute all participants
@@ -1203,18 +1594,19 @@ Func CheckMeetingWindow($meetingTime)
 		; Meeting already started
 		Local $minutesAgo = $nowMin - $meetingMin
 		If $minutesAgo <= 120 Then
-			Debug(t("INFO_MEETING_STARTED_AGO", $minutesAgo), "INFO", True)
+			Debug(t("INFO_MEETING_STARTED_AGO", $minutesAgo), "INFO", $g_InitialNotificationWasShown)
 		Else
-			Debug(t("INFO_OUTSIDE_MEETING_WINDOW"), "INFO", True)
+			Debug(t("INFO_OUTSIDE_MEETING_WINDOW"), "INFO", $g_InitialNotificationWasShown)
 		EndIf
-		$secondsToWait = 600 ; Check every 10 minutes if meeting already started
+		$secondsToWait = 30 ; Check every 30 seconds if meeting already started
 	Else
 		; Too early - show countdown to meeting
 		Local $minutesLeft = $meetingMin - $nowMin
-		Debug(t("INFO_MEETING_STARTING_IN", $minutesLeft), "INFO", True)
+		Debug(t("INFO_MEETING_STARTING_IN", $minutesLeft), "INFO", $g_InitialNotificationWasShown)
 	EndIf
 
 	ResponsiveSleep($secondsToWait)
+	$g_InitialNotificationWasShown = True
 EndFunc   ;==>CheckMeetingWindow
 
 ; ================================================================================================
@@ -1225,6 +1617,12 @@ EndFunc   ;==>CheckMeetingWindow
 _LoadTranslations()
 LoadMeetingConfig()
 _InitDayLabelMaps()
+
+; Debugging functions here
+_GetZoomWindow()
+FocusZoomWindow()
+_GetZoomStatus()
+_SetDuringMeetingSettings()
 
 ; Main application loop
 While True
@@ -1248,8 +1646,9 @@ While True
 	ElseIf $today = Number(GetUserSetting("WeekendDay")) Then
 		CheckMeetingWindow(GetUserSetting("WeekendTime"))
 	Else
-		; Not a meeting day - wait 1 hour before checking again
-		Debug(t("INFO_WAITING"), "INFO")
-		ResponsiveSleep(3600)
+		; Not a meeting day - wait 1 minute before checking again
+		Debug(t("INFO_NO_MEETING_SCHEDULED"), "INFO", $g_InitialNotificationWasShown)
+		$g_InitialNotificationWasShown = True
+		ResponsiveSleep(60)
 	EndIf
 WEnd
