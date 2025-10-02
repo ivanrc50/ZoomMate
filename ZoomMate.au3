@@ -1162,7 +1162,7 @@ Func _MoveMouseToStartOfElement($oElement, $Click = False)
 	Local $iHeight = Number($aRect[4])
 
 	; Move mouse to start (left edge, vertically centered)
-	Local $iStartX = $iLeft + 5 ; Slight offset from left edge
+	Local $iStartX = $iLeft + Random(5, 30, 1) ; Random offset from left edge
 	Local $iStartY = $iTop + ($iHeight / 2)
 
 	Debug("Moving mouse to start position: " & $iStartX & "," & $iStartY, "DEBUG")
@@ -1193,41 +1193,46 @@ Func _OpenHostTools()
 	; Check if host menu is already open
 	Local $oHostMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
 	If Not IsObj($oHostMenu) Then
+
+		; Controls might be hidden, show them by moving the mouse
+		Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
+		_MoveMouseToStartOfElement($oZoomWindow)
+
 		; Menu not open, find and click the Host Tools button
 		Local $oHostToolsButton = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oZoomWindow)
 
-
-		; Maybe the Zoom window is small, look for the "More" button first
-		If Not IsObj($oHostToolsButton) Then
-			Debug("Host Tools button not found, looking for 'More' button.", "DEBUG")
-			Local $oMoreMenu = GetMoreMenu()
-			If Not IsObj($oMoreMenu) Then
+		; Scenario 1: Try to find Host Tools button directly
+		If IsObj($oHostToolsButton) Then
+			Debug("Host Tools button found directly; clicking.", "DEBUG")
+			If Not _ClickElement($oHostToolsButton) Then
+				Debug("Failed to click Host Tools.", "ERROR")
 				Return False
 			EndIf
-
-			; Now look for the Host Tools button again in the More menu
-			Local $oHostToolsMenuItem = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oMoreMenu)
-			If IsObj($oHostToolsMenuItem) Then
-				Debug("Found Host Tools menu item. Hovering it to open submenu.", "DEBUG")
-				If _HoverElement($oHostToolsMenuItem, 500) Then
-					; Return the now-open host menu
-					$oHostMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
-					Return $oHostMenu
+		Else
+			; Scenario 2: Try to find More menu, then Host Tools
+			Debug("Host Tools button not found, looking for 'More' button.", "DEBUG")
+			Local $oMoreMenu = GetMoreMenu()
+			If IsObj($oMoreMenu) Then
+				; Now look for the Host Tools button in the More menu
+				Local $oHostToolsMenuItem = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oMoreMenu)
+				If IsObj($oHostToolsMenuItem) Then
+					Debug("Found Host Tools menu item. Hovering it to open submenu.", "DEBUG")
+					If _HoverElement($oHostToolsMenuItem, 500) Then
+						; Return the now-open host menu
+						$oHostMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
+						Return $oHostMenu
+					Else
+						Debug("Failed to hover Host Tools menu item in More menu.", "ERROR")
+						Return False
+					EndIf
 				Else
-					Debug("Failed to click Participants menu item in More menu.", "ERROR")
+					Debug("Failed to find Host Tools menu item in More menu.", "ERROR")
 					Return False
 				EndIf
 			Else
-				Debug("Host Tools button still not found after clicking 'More'.", "ERROR")
+				Debug("Failed to find More menu to access Host Tools.", "ERROR")
 				Return False
 			EndIf
-		EndIf
-
-
-
-		If Not _ClickElement($oHostToolsButton) Then
-			Debug("Failed to click Host Tools.", "ERROR")
-			Return False
 		EndIf
 	EndIf
 
@@ -1251,6 +1256,9 @@ Func GetMoreMenu()
 	If Not IsObj($oMoreMenu) Then
 		; Menu not open, find and click the More button
 		Debug("More menu not open, attempting to open.", "DEBUG")
+		Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
+		_MoveMouseToStartOfElement($oZoomWindow)
+
 		Local $oMoreButton = FindElementByPartialName(GetUserSetting("MoreMeetingControlsValue"), Default, $oZoomWindow)
 		If Not IsObj($oMoreButton) Then
 			Debug("Failed to find More button.", "ERROR")
@@ -1280,6 +1288,10 @@ EndFunc   ;==>GetMoreMenu
 Func _OpenParticipantsPanel()
 	If Not IsObj($oZoomWindow) Then Return False
 
+	; Controls might be hidden, show them by moving the mouse
+	Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
+	_MoveMouseToStartOfElement($oZoomWindow)
+
 	Local $ListType[1] = [$UIA_ListControlTypeId]
 	Local $oParticipantsPanel = FindElementByPartialName(GetUserSetting("ParticipantValue"), $ListType, $oZoomWindow)
 
@@ -1287,46 +1299,47 @@ Func _OpenParticipantsPanel()
 		; Panel not open, find and click the Participants button
 		Debug("Participants panel not open, attempting to open.", "UIA")
 		Local $oMainParticipantsButton = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
-		; Maybe the Zoom window is small, look for the "More" button first
-		If Not IsObj($oMainParticipantsButton) Then
-			Debug("Participants button not found, looking for 'More' button.", "DEBUG")
-			Local $oMoreMenu = GetMoreMenu()
-			If Not IsObj($oMoreMenu) Then
-				Debug("Failed to open 'More' menu to find Participants button.", "ERROR")
-				Return False
-			EndIf
 
-			; Now look for the Participants button again in the More menu
-			Local $oParticipantsMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oMoreMenu)
-			If IsObj($oParticipantsMenuItem) Then
-				Debug("Found Participants menu item. Hovering it to open submenu.", "DEBUG")
-				$oParticipantsMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oMoreMenu)
-				If _HoverElement($oParticipantsMenuItem, 1200) Then         ; 1.2s hover to ensure submenu appears
-					; Now look for the Participants button again in the submenu
-					Debug("Looking for Participants button again in submenu.", "DEBUG")
-					Local $oParticipantsSubMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
-					If IsObj($oParticipantsSubMenuItem) Then
-						Debug("Final Participants button found. Clicking it.", "DEBUG")
-						_HoverElement($oParticipantsSubMenuItem, 500)
-						_MoveMouseToStartOfElement($oParticipantsSubMenuItem, True)
-						ResponsiveSleep(0.5) ; Move mouse to start of element and click to avoid hover issues
-					Else
-						Debug("Participants button still not found after clicking 'More'.", "ERROR")
-						Return False
-					EndIf
-				Else
-					Debug("Failed to click Participants menu item in More menu.", "ERROR")
-					Return False
-				EndIf
-			Else
-				Debug("Participants button still not found after clicking 'More'.", "ERROR")
+		; Scenario 1: Try to find Participants button directly
+		If IsObj($oMainParticipantsButton) Then
+			Debug("Participants button found directly; clicking.", "DEBUG")
+			If Not _ClickElement($oMainParticipantsButton) Then
+				Debug("Failed to click Participants.", "ERROR")
 				Return False
 			EndIf
 		Else
-			Debug("Participants button found directly; clicking.", "DEBUG")
-			; Click the Participants button
-			If Not _ClickElement($oMainParticipantsButton) Then
-				Debug("Failed to click Participants.", "ERROR")
+			; Scenario 2: Try to find More menu, then Participants
+			Debug("Participants button not found, looking for 'More' button.", "DEBUG")
+			Local $oMoreMenu = GetMoreMenu()
+			If IsObj($oMoreMenu) Then
+				; Now look for the Participants button in the More menu
+				Local $oParticipantsMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oMoreMenu)
+				If IsObj($oParticipantsMenuItem) Then
+					Debug("Found Participants menu item. Hovering it to open submenu.", "DEBUG")
+					If _HoverElement($oParticipantsMenuItem, 1200) Then         ; 1.2s hover to ensure submenu appears
+						; Now look for the Participants button again in the submenu
+						Debug("Looking for Participants button again in submenu.", "DEBUG")
+						Local $oParticipantsSubMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
+						If IsObj($oParticipantsSubMenuItem) Then
+							Debug("Final Participants button found. Clicking it.", "DEBUG")
+							_HoverElement($oParticipantsSubMenuItem, 500)
+							_MoveMouseToStartOfElement($oParticipantsSubMenuItem, True)
+							Debug("Participants button clicked.", "SUCCESS")
+							ResponsiveSleep(0.5) ; Move mouse to start of element and click to avoid hover issues
+						Else
+							Debug("Failed to find Participants button in submenu.", "ERROR")
+							Return False
+						EndIf
+					Else
+						Debug("Failed to hover Participants menu item in More menu.", "ERROR")
+						Return False
+					EndIf
+				Else
+					Debug("Failed to find Participants menu item in More menu.", "ERROR")
+					Return False
+				EndIf
+			Else
+				Debug("Failed to find More menu to access Participants.", "ERROR")
 				Return False
 			EndIf
 		EndIf
@@ -1415,6 +1428,10 @@ EndFunc   ;==>SetSecuritySetting
 ; @param $desiredState - True to enable, False to disable
 Func ToggleFeed($feedType, $desiredState)
 	Local $currentlyEnabled = False
+
+	; Controls might be hidden, show them by moving the mouse
+	Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
+	_MoveMouseToStartOfElement($oZoomWindow)
 
 	If $feedType = "Video" Then
 		; Check for video control buttons to determine current state
@@ -1618,36 +1635,36 @@ Func CheckMeetingWindow($meetingTime)
 EndFunc   ;==>CheckMeetingWindow
 
 Func ShowPleaseWaitMessage()
-    ; If already showing, bring to front
-    If $g_PleaseWaitGUI <> 0 Then
-        GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
-        WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
-        Return
-    EndIf
+	; If already showing, bring to front
+	If $g_PleaseWaitGUI <> 0 Then
+		GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
+		WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
+		Return
+	EndIf
 
-    Local $iW = 280
-    Local $iH = 120
-    Local $iX = (@DesktopWidth - $iW) / 2
-    Local $iY = (@DesktopHeight - $iH) / 2
+	Local $iW = 280
+	Local $iH = 120
+	Local $iX = (@DesktopWidth - $iW) / 2
+	Local $iY = (@DesktopHeight - $iH) / 2
 
-    ; Create borderless, always-on-top popup on primary monitor
-    $g_PleaseWaitGUI = GUICreate("Please Wait", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
-    GUISetBkColor(0x0000FF, $g_PleaseWaitGUI) ; Blue background
+	; Create borderless, always-on-top popup on primary monitor
+	$g_PleaseWaitGUI = GUICreate("Please Wait", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
+	GUISetBkColor(0x0000FF, $g_PleaseWaitGUI) ; Blue background
 
-    ; Centered white label text
-    Local $idLbl = GUICtrlCreateLabel("please wait...", 0, 0, $iW, $iH, $SS_CENTER)
-    GUICtrlSetColor($idLbl, 0xFFFFFF)
-    GUICtrlSetFont($idLbl, 14, 800)
+	; Centered white label text
+	Local $idLbl = GUICtrlCreateLabel("please wait...", 0, 0, $iW, $iH, $SS_CENTER)
+	GUICtrlSetColor($idLbl, 0xFFFFFF)
+	GUICtrlSetFont($idLbl, 14, 800)
 
-    GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
-    WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
-EndFunc
+	GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
+	WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
+EndFunc   ;==>ShowPleaseWaitMessage
 
 Func HidePleaseWaitMessage()
-    If $g_PleaseWaitGUI <> 0 Then
-        GUIDelete($g_PleaseWaitGUI)
-        $g_PleaseWaitGUI = 0
-    EndIf
+	If $g_PleaseWaitGUI <> 0 Then
+		GUIDelete($g_PleaseWaitGUI)
+		$g_PleaseWaitGUI = 0
+	EndIf
 EndFunc   ;==>HidePleaseWaitMessage
 ; Load translations and configuration
 _LoadTranslations()
