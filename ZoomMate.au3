@@ -411,7 +411,10 @@ Func ShowConfigGUI()
 
 	; Show the GUI and register message handler for real-time validation
 	GUISetState(@SW_SHOW, $g_ConfigGUI)
-; Shows a "Please Wait" message dialog during long operations
+	; Shows a "Please Wait" message dialog during long operations
+	GUIRegisterMsg($WM_COMMAND, "_WM_COMMAND_EditChange")
+EndFunc   ;==>ShowConfigGUI
+
 Func ShowPleaseWaitMessage()
 	; If already showing, bring to front
 	If $g_PleaseWaitGUI <> 0 Then
@@ -469,33 +472,33 @@ EndFunc   ;==>_AddTextInputField
 ; @param $imageName - Image filename for tooltip
 Func _AddTextInputFieldWithTooltip($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput, $explainKey, $imageName)
 	GUICtrlCreateLabel($label, $xLabel, $yLabel, 110, 20)
-	
+
 	; Create info icon label (using Unicode info symbol)
 	Local $idInfoIcon = GUICtrlCreateLabel("ℹ️", $xLabel + 115, $yLabel, 15, 20)
 	GUICtrlSetColor($idInfoIcon, 0x0066CC) ; Blue color
 	GUICtrlSetFont($idInfoIcon, 10, 700) ; Bold
 	GUICtrlSetCursor($idInfoIcon, 0) ; Hand cursor
-	
+
 	; Build tooltip text with explanation and image reference
 	Local $tooltipText = t($explainKey)
 	Local $imagePath = @ScriptDir & "\images\" & $imageName
-	
+
 	; Check if image exists, if not use placeholder path
 	If Not FileExists($imagePath) Then
 		$imagePath = @ScriptDir & "\images\placeholder.jpg"
 	EndIf
-	
+
 	; Set standard tooltip with explanation text only
 	GUICtrlSetTip($idInfoIcon, $tooltipText)
-	
+
 	; Store image path for custom tooltip display on click
 	If Not $g_InfoIconData.Exists($idInfoIcon) Then
 		$g_InfoIconData.Add($idInfoIcon, $imagePath)
 	EndIf
-	
+
 	; Set click event to show image tooltip
 	GUICtrlSetOnEvent($idInfoIcon, "_ShowImageTooltip")
-	
+
 	Local $idInput = GUICtrlCreateInput(GetUserSetting($key), $xInput, $yInput, $wInput, 20)
 	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
 	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
@@ -719,32 +722,32 @@ EndFunc   ;==>CloseConfigGUI
 ; Shows a custom tooltip window with an image when info icon is clicked
 Func _ShowImageTooltip()
 	Local $idClicked = @GUI_CtrlId
-	
+
 	; Check if this info icon has an associated image
 	If Not $g_InfoIconData.Exists($idClicked) Then Return
-	
+
 	Local $imagePath = $g_InfoIconData.Item($idClicked)
-	
+
 	; Close any existing tooltip
 	_CloseImageTooltip()
-	
+
 	; Create tooltip window with image
 	Local $iW = 220
 	Local $iH = 170
 	Local $mousePos = MouseGetPos()
 	Local $iX = $mousePos[0] + 10
 	Local $iY = $mousePos[1] + 10
-	
+
 	; Adjust position if tooltip would go off screen
 	If $iX + $iW > @DesktopWidth Then $iX = @DesktopWidth - $iW - 10
 	If $iY + $iH > @DesktopHeight Then $iY = @DesktopHeight - $iH - 10
-	
+
 	$g_TooltipGUI = GUICreate("", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
 	GUISetBkColor(0xFFFFE1, $g_TooltipGUI) ; Light yellow background
 
 	Debug($imagePath)
-	Debug(FileExists($imagePath)	)
-	
+	Debug(FileExists($imagePath))
+
 	; Add image if it exists
 	If FileExists($imagePath) Then
 		GUICtrlCreatePic($imagePath, 10, 10, 200, 150)
@@ -752,9 +755,9 @@ Func _ShowImageTooltip()
 		GUICtrlCreateLabel("Image not found:", 10, 10, 200, 20)
 		GUICtrlCreateLabel($imagePath, 10, 35, 200, 100)
 	EndIf
-	
+
 	GUISetState(@SW_SHOW, $g_TooltipGUI)
-	
+
 	; Auto-close after 5 seconds or when clicking anywhere
 	AdlibRegister("_CloseImageTooltip", 5000)
 EndFunc   ;==>_ShowImageTooltip
@@ -917,33 +920,33 @@ EndFunc   ;==>FocusZoomWindow
 ; @param $side - "Left" or "Right"
 ; @return Boolean - True if moved, False otherwise
 Func _SnapZoomWindowToSide($side)
-    Local $oZoomWindow = _GetZoomWindow()
-    If Not IsObj($oZoomWindow) Then
-        Debug("_SnapZoomWindowToSide: Zoom window not found", "WARN")
-        Return False
-    EndIf
+	Local $oZoomWindow = _GetZoomWindow()
+	If Not IsObj($oZoomWindow) Then
+		Debug("_SnapZoomWindowToSide: Zoom window not found", "WARN")
+		Return False
+	EndIf
 
-    ; Get HWND
-    Local $hWnd
-    $oZoomWindow.GetCurrentPropertyValue($UIA_NativeWindowHandlePropertyId, $hWnd)
-    If Not $hWnd Or $hWnd = 0 Then
-        Debug("_SnapZoomWindowToSide: Invalid HWND", "DEBUG")
-        Return False
-    EndIf
-    $hWnd = Ptr($hWnd)
+	; Get HWND
+	Local $hWnd
+	$oZoomWindow.GetCurrentPropertyValue($UIA_NativeWindowHandlePropertyId, $hWnd)
+	If Not $hWnd Or $hWnd = 0 Then
+		Debug("_SnapZoomWindowToSide: Invalid HWND", "DEBUG")
+		Return False
+	EndIf
+	$hWnd = Ptr($hWnd)
 
-    ; Primary monitor work area
-    Local $screenW = @DesktopWidth
-    Local $screenH = @DesktopHeight
-    Local $x = 0, $y = 0, $w = Int($screenW / 2), $h = $screenH
-    If StringLower($side) = "right" Then
-        $x = $w
-    EndIf
+	; Primary monitor work area
+	Local $screenW = @DesktopWidth
+	Local $screenH = @DesktopHeight
+	Local $x = 0, $y = 0, $w = Int($screenW / 2), $h = $screenH
+	If StringLower($side) = "right" Then
+		$x = $w
+	EndIf
 
-    ; Move and resize
-    WinMove($hWnd, "", $x, $y, $w, $h)
-    Debug("Zoom window snapped to " & $side & " half of primary monitor.", "DEBUG")
-    Return True
+	; Move and resize
+	WinMove($hWnd, "", $x, $y, $w, $h)
+	Debug("Zoom window snapped to " & $side & " half of primary monitor.", "DEBUG")
+	Return True
 EndFunc   ;==>_SnapZoomWindowToSide
 
 
