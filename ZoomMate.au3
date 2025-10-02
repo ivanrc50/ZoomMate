@@ -411,8 +411,40 @@ Func ShowConfigGUI()
 
 	; Show the GUI and register message handler for real-time validation
 	GUISetState(@SW_SHOW, $g_ConfigGUI)
-	GUIRegisterMsg($WM_COMMAND, "_WM_COMMAND_EditChange")
-EndFunc   ;==>ShowConfigGUI
+; Shows a "Please Wait" message dialog during long operations
+Func ShowPleaseWaitMessage()
+	; If already showing, bring to front
+	If $g_PleaseWaitGUI <> 0 Then
+		GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
+		WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
+		Return
+	EndIf
+
+	Local $iW = 280
+	Local $iH = 120
+	Local $iX = (@DesktopWidth - $iW) / 2
+	Local $iY = (@DesktopHeight - $iH) / 2
+
+	; Create borderless, always-on-top popup on primary monitor
+	$g_PleaseWaitGUI = GUICreate("Please Wait", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
+	GUISetBkColor(0x0000FF, $g_PleaseWaitGUI) ; Blue background
+
+	; Centered white label text
+	Local $idLbl = GUICtrlCreateLabel("please wait...", 0, 0, $iW, $iH, $SS_CENTER)
+	GUICtrlSetColor($idLbl, 0xFFFFFF)
+	GUICtrlSetFont($idLbl, 14, 800)
+
+	GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
+	WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
+EndFunc   ;==>ShowPleaseWaitMessage
+
+; Hides and destroys the "Please Wait" message dialog
+Func HidePleaseWaitMessage()
+	If $g_PleaseWaitGUI <> 0 Then
+		GUIDelete($g_PleaseWaitGUI)
+		$g_PleaseWaitGUI = 0
+	EndIf
+EndFunc   ;==>HidePleaseWaitMessage
 
 ; Helper function to add text input field with label
 ; @param $key - Settings key name
@@ -983,6 +1015,10 @@ Func FindElementByPartialName($sPartial, $aControlTypes = Default, $oParent = De
 EndFunc   ;==>FindElementByPartialName
 
 
+; Searches for UI elements by control type and prints their hierarchy for debugging
+; @param $iControlType - Control type ID to search for
+; @param $oParent - Parent element to search within (default: desktop)
+; @return Object - First element found or 0 if none found
 Func FindElementByControlType($iControlType, $oParent = Default)
 	Debug("Searching for ALL elements of control type: " & $iControlType, "DEBUG")
 
@@ -1092,6 +1128,7 @@ EndFunc   ;==>_PrintElementTree
 ; Clicks a UI element using multiple methods for maximum compatibility
 ; @param $oElement - Element to click
 ; @param $ForceClick - If True, forces mouse click method
+; @param $BoundingRectangle - If True, forces click by bounding rectangle
 ; @return Boolean - True if successful, False otherwise
 Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False)
 	ResponsiveSleep(0.5) ; Brief pause to ensure UI is ready
@@ -1221,6 +1258,9 @@ Func ClickByBoundingRectangle($oElement)
 EndFunc   ;==>ClickByBoundingRectangle
 
 
+; Gets the name property of a UI element
+; @param $oElement - The UI element object
+; @return String - Element name or empty string if not found
 Func GetElementName($oElement)
 	Local $sName = ""
 	If IsObj($oElement) Then
@@ -1233,6 +1273,7 @@ EndFunc   ;==>GetElementName
 ; Hovers over a UI element by moving the mouse to its center
 ; @param $oElement - The UIA element object
 ; @param $iHoverTime - Time in milliseconds to hold the hover (default: 1000ms)
+; @param $SlightOffset - If True, adds slight random offset to avoid exact center
 ; @return Boolean - True if successful, False otherwise
 Func _HoverElement($oElement, $iHoverTime = 1000, $SlightOffset = False)
 	ResponsiveSleep(0.3) ; Small buffer before hover
@@ -1288,6 +1329,10 @@ Func _HoverElement($oElement, $iHoverTime = 1000, $SlightOffset = False)
 	Return True
 EndFunc   ;==>_HoverElement
 
+; Moves mouse to the start of an element and optionally clicks it
+; @param $oElement - The UIA element object
+; @param $Click - If True, performs a click after moving (default: False)
+; @return Boolean - True if successful, False otherwise
 Func _MoveMouseToStartOfElement($oElement, $Click = False)
 	ResponsiveSleep(0.3) ; Small buffer before move
 	If Not IsObj($oElement) Then
@@ -1406,8 +1451,9 @@ Func _CloseHostTools()
 	Debug("Host tools menu closed.", "UIA")
 EndFunc   ;==>_CloseHostTools
 
+; Opens the "More" menu in Zoom if available
+; @return Object - More menu object or False if failed
 Func GetMoreMenu()
-	; Opens the "More" menu in Zoom if available
 	If Not IsObj($oZoomWindow) Then Return False
 
 	Local $oMoreMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
@@ -1801,38 +1847,6 @@ Func CheckMeetingWindow($meetingTime)
 	$g_InitialNotificationWasShown = True
 EndFunc   ;==>CheckMeetingWindow
 
-Func ShowPleaseWaitMessage()
-	; If already showing, bring to front
-	If $g_PleaseWaitGUI <> 0 Then
-		GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
-		WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
-		Return
-	EndIf
-
-	Local $iW = 280
-	Local $iH = 120
-	Local $iX = (@DesktopWidth - $iW) / 2
-	Local $iY = (@DesktopHeight - $iH) / 2
-
-	; Create borderless, always-on-top popup on primary monitor
-	$g_PleaseWaitGUI = GUICreate("Please Wait", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
-	GUISetBkColor(0x0000FF, $g_PleaseWaitGUI) ; Blue background
-
-	; Centered white label text
-	Local $idLbl = GUICtrlCreateLabel("please wait...", 0, 0, $iW, $iH, $SS_CENTER)
-	GUICtrlSetColor($idLbl, 0xFFFFFF)
-	GUICtrlSetFont($idLbl, 14, 800)
-
-	GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
-	WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
-EndFunc   ;==>ShowPleaseWaitMessage
-
-Func HidePleaseWaitMessage()
-	If $g_PleaseWaitGUI <> 0 Then
-		GUIDelete($g_PleaseWaitGUI)
-		$g_PleaseWaitGUI = 0
-	EndIf
-EndFunc   ;==>HidePleaseWaitMessage
 ; Load translations and configuration
 _LoadTranslations()
 LoadMeetingConfig()
