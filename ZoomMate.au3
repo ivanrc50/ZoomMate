@@ -261,6 +261,9 @@ Func LoadMeetingConfig()
 	$g_UserSettings.Add("MoreMeetingControlsValue", IniRead($CONFIG_FILE, "ZoomStrings", "MoreMeetingControlsValue", ""))
 	$g_UserSettings.Add("YesValue", IniRead($CONFIG_FILE, "ZoomStrings", "YesValue", ""))
 
+	; Window snapping preference (Disabled|Left|Right)
+	$g_UserSettings.Add("SnapZoomSide", IniRead($CONFIG_FILE, "General", "SnapZoomSide", "Disabled"))
+
 	; Load language setting
 	Local $lang = IniRead($CONFIG_FILE, "General", "Language", "")
 	If $lang = "" Then
@@ -294,7 +297,7 @@ Func _GetIniSectionForKey($sKey)
 			Return "ZoomSettings"
 		Case "MidweekDay", "MidweekTime", "WeekendDay", "WeekendTime"
 			Return "Meetings"
-		Case "Language"
+		Case "Language", "SnapZoomSide"
 			Return "General"
 		Case Else
 			Return "ZoomStrings"
@@ -348,13 +351,27 @@ Func ShowConfigGUI()
 	_InitDayLabelMaps()
 
 	; Create main configuration window
-	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 460)
+	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 510)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "SaveConfigGUI", $g_ConfigGUI)
 
 	; Language selection dropdown
 	GUICtrlCreateLabel("Language:", 10, 160, 120, 20)
 	$idLanguagePicker = GUICtrlCreateCombo("", 140, 160, 160, 20)
 	GUICtrlSetData($idLanguagePicker, _ListAvailableLanguageNames(), _GetLanguageDisplayName(GetUserSetting("Language")))
+
+	; Snap Zoom to side (Disabled|Left|Right)
+	GUICtrlCreateLabel(t("LABEL_SNAP_ZOOM_TO"), 10, 190, 120, 20)
+	Local $idSnapZoom = GUICtrlCreateCombo("", 140, 190, 160, 20)
+	Local $snapVal = GetUserSetting("SnapZoomSide")
+	Local $snapDisplay = t("SNAP_DISABLED")
+	If $snapVal = "Left" Then
+		$snapDisplay = t("SNAP_LEFT")
+	ElseIf $snapVal = "Right" Then
+		$snapDisplay = t("SNAP_RIGHT")
+	EndIf
+	GUICtrlSetData($idSnapZoom, t("SNAP_DISABLED") & "|" & t("SNAP_LEFT") & "|" & t("SNAP_RIGHT"), $snapDisplay)
+	If Not $g_FieldCtrls.Exists("SnapZoomSide") Then $g_FieldCtrls.Add("SnapZoomSide", $idSnapZoom)
+	GUICtrlSetOnEvent($idSnapZoom, "CheckConfigFields")
 
 	; Meeting configuration fields
 	_AddTextInputField("MeetingID", t("LABEL_MEETING_ID"), 10, 10, 140, 10, 160)
@@ -368,18 +385,18 @@ Func ShowConfigGUI()
 	_AddTextInputField("WeekendTime", t("LABEL_WEEKEND_TIME"), 10, 130, 200, 130, 100)
 
 	; Zoom UI element text values (for internationalization support)
-	_AddTextInputFieldWithTooltip("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 190, 140, 190, 160, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
-	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 220, 140, 220, 160, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
-	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, 250, 140, 250, 160, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
-	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, 280, 140, 280, 160, "LABEL_YES_EXPLAIN", "yes.jpg")
+	_AddTextInputFieldWithTooltip("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 220, 140, 220, 160, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
+	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 250, 140, 250, 160, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
+	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, 280, 140, 280, 160, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
+	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, 310, 140, 310, 160, "LABEL_YES_EXPLAIN", "yes.jpg")
 
 	; Error display area
-	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 310, 300, 20)
+	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 370, 300, 20)
 	GUICtrlSetColor($g_ErrorAreaLabel, 0xFF0000) ; Red text for errors
 
 	; Action buttons
-	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 340, 80, 30)
-	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 340, 80, 30)
+	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 400, 80, 30)
+	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 400, 80, 30)
 
 	; Set initial button states
 	GUICtrlSetState($idSaveBtn, $GUI_DISABLE)  ; Disabled until all fields valid
@@ -628,6 +645,17 @@ Func SaveConfigGUI()
 			If $g_DayLabelToNum.Exists($val) Then $val = String($g_DayLabelToNum.Item($val))
 		EndIf
 
+		; Convert translated snap selection back to internal values
+		If ($sKey = "SnapZoomSide") Then
+			If $val = t("SNAP_LEFT") Then
+				$val = "Left"
+			ElseIf $val = t("SNAP_RIGHT") Then
+				$val = "Right"
+			Else
+				$val = "Disabled"
+			EndIf
+		EndIf
+
 		$g_UserSettings.Add($sKey, $val)
 		IniWrite($CONFIG_FILE, _GetIniSectionForKey($sKey), $sKey, GetUserSetting($sKey))
 	Next
@@ -851,6 +879,40 @@ Func FocusZoomWindow()
 
 	Return False
 EndFunc   ;==>FocusZoomWindow
+
+
+; Snaps the Zoom window to a side of the primary monitor
+; @param $side - "Left" or "Right"
+; @return Boolean - True if moved, False otherwise
+Func _SnapZoomWindowToSide($side)
+    Local $oZoomWindow = _GetZoomWindow()
+    If Not IsObj($oZoomWindow) Then
+        Debug("_SnapZoomWindowToSide: Zoom window not found", "WARN")
+        Return False
+    EndIf
+
+    ; Get HWND
+    Local $hWnd
+    $oZoomWindow.GetCurrentPropertyValue($UIA_NativeWindowHandlePropertyId, $hWnd)
+    If Not $hWnd Or $hWnd = 0 Then
+        Debug("_SnapZoomWindowToSide: Invalid HWND", "DEBUG")
+        Return False
+    EndIf
+    $hWnd = Ptr($hWnd)
+
+    ; Primary monitor work area
+    Local $screenW = @DesktopWidth
+    Local $screenH = @DesktopHeight
+    Local $x = 0, $y = 0, $w = Int($screenW / 2), $h = $screenH
+    If StringLower($side) = "right" Then
+        $x = $w
+    EndIf
+
+    ; Move and resize
+    WinMove($hWnd, "", $x, $y, $w, $h)
+    Debug("Zoom window snapped to " & $side & " half of primary monitor.", "DEBUG")
+    Return True
+EndFunc   ;==>_SnapZoomWindowToSide
 
 
 ; Finds UI element by partial name match across multiple control types
@@ -1631,6 +1693,14 @@ Func _LaunchZoom()
 	ShellExecute($zoomURL)
 	Debug(t("INFO_ZOOM_LAUNCHED") & ": " & $meetingID, "INFO")
 	ResponsiveSleep(10)  ; Wait for Zoom to launch
+
+	; Optionally snap the Zoom window to the selected side
+	Local $snapSide = GetUserSetting("SnapZoomSide")
+	If StringLower($snapSide) <> "disabled" Then
+		FocusZoomWindow()
+		_SnapZoomWindowToSide($snapSide)
+	EndIf
+
 	Return IsObj(_GetZoomWindow())
 EndFunc   ;==>_LaunchZoom
 
@@ -1769,6 +1839,7 @@ LoadMeetingConfig()
 _InitDayLabelMaps()
 
 ; Debugging functions here
+; _LaunchZoom()
 ; _GetZoomWindow()
 ; FocusZoomWindow()
 ; _GetZoomStatus()
