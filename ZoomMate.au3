@@ -64,6 +64,8 @@ Global $g_FieldCtrls = ObjCreate("Scripting.Dictionary")  ; Maps field names to 
 Global $g_ErrorAreaLabel = 0                   ; Error display label control ID
 Global $g_ConfigGUI = 0                        ; Configuration GUI handle
 Global $g_PleaseWaitGUI = 0                    ; Handle for the please-wait popup
+Global $g_TooltipGUI = 0                       ; Handle for custom image tooltip
+Global $g_InfoIconData = ObjCreate("Scripting.Dictionary")  ; Maps info icon IDs to image paths
 
 ; Day mapping containers for internationalization
 Global $g_DayLabelToNum = ObjCreate("Scripting.Dictionary")    ; Day name -> number (1-7)
@@ -366,10 +368,10 @@ Func ShowConfigGUI()
 	_AddTextInputField("WeekendTime", t("LABEL_WEEKEND_TIME"), 10, 130, 200, 130, 100)
 
 	; Zoom UI element text values (for internationalization support)
-	_AddTextInputField("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 190, 140, 190, 160)
-	_AddTextInputField("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 220, 140, 220, 160)
-	_AddTextInputField("MuteAllValue", t("LABEL_MUTE_All"), 10, 250, 140, 250, 160)
-	_AddTextInputField("YesValue", t("LABEL_YES"), 10, 280, 140, 280, 160)
+	_AddTextInputFieldWithTooltip("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 190, 140, 190, 160, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
+	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 220, 140, 220, 160, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
+	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, 250, 140, 250, 160, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
+	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, 280, 140, 280, 160, "LABEL_YES_EXPLAIN", "yes.jpg")
 
 	; Error display area
 	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 310, 300, 20)
@@ -407,6 +409,48 @@ Func _AddTextInputField($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInpu
 	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
 	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
 EndFunc   ;==>_AddTextInputField
+
+; Helper function to add text input field with label, info icon, and tooltip
+; @param $key - Settings key name
+; @param $label - Display label text
+; @param $xLabel,$yLabel - Label position
+; @param $xInput,$yInput - Input position
+; @param $wInput - Input width
+; @param $explainKey - Translation key for explanation text
+; @param $imageName - Image filename for tooltip
+Func _AddTextInputFieldWithTooltip($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput, $explainKey, $imageName)
+	GUICtrlCreateLabel($label, $xLabel, $yLabel, 110, 20)
+	
+	; Create info icon label (using Unicode info symbol)
+	Local $idInfoIcon = GUICtrlCreateLabel("ℹ️", $xLabel + 115, $yLabel, 15, 20)
+	GUICtrlSetColor($idInfoIcon, 0x0066CC) ; Blue color
+	GUICtrlSetFont($idInfoIcon, 10, 700) ; Bold
+	GUICtrlSetCursor($idInfoIcon, 0) ; Hand cursor
+	
+	; Build tooltip text with explanation and image reference
+	Local $tooltipText = t($explainKey)
+	Local $imagePath = @ScriptDir & "\images\" & $imageName
+	
+	; Check if image exists, if not use placeholder path
+	If Not FileExists($imagePath) Then
+		$imagePath = @ScriptDir & "\images\placeholder.jpg"
+	EndIf
+	
+	; Set standard tooltip with explanation text only
+	GUICtrlSetTip($idInfoIcon, $tooltipText)
+	
+	; Store image path for custom tooltip display on click
+	If Not $g_InfoIconData.Exists($idInfoIcon) Then
+		$g_InfoIconData.Add($idInfoIcon, $imagePath)
+	EndIf
+	
+	; Set click event to show image tooltip
+	GUICtrlSetOnEvent($idInfoIcon, "_ShowImageTooltip")
+	
+	Local $idInput = GUICtrlCreateInput(GetUserSetting($key), $xInput, $yInput, $wInput, 20)
+	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
+	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
+EndFunc   ;==>_AddTextInputFieldWithTooltip
 
 ; Helper function to add day selection dropdown with label
 ; @param $key - Settings key name
@@ -609,7 +653,60 @@ EndFunc   ;==>SaveConfigGUI
 Func CloseConfigGUI()
 	GUIDelete($g_ConfigGUI)
 	$g_ConfigGUI = 0
+	_CloseImageTooltip() ; Close any open image tooltip
 EndFunc   ;==>CloseConfigGUI
+
+; Shows a custom tooltip window with an image when info icon is clicked
+Func _ShowImageTooltip()
+	Local $idClicked = @GUI_CtrlId
+	
+	; Check if this info icon has an associated image
+	If Not $g_InfoIconData.Exists($idClicked) Then Return
+	
+	Local $imagePath = $g_InfoIconData.Item($idClicked)
+	
+	; Close any existing tooltip
+	_CloseImageTooltip()
+	
+	; Create tooltip window with image
+	Local $iW = 220
+	Local $iH = 170
+	Local $mousePos = MouseGetPos()
+	Local $iX = $mousePos[0] + 10
+	Local $iY = $mousePos[1] + 10
+	
+	; Adjust position if tooltip would go off screen
+	If $iX + $iW > @DesktopWidth Then $iX = @DesktopWidth - $iW - 10
+	If $iY + $iH > @DesktopHeight Then $iY = @DesktopHeight - $iH - 10
+	
+	$g_TooltipGUI = GUICreate("", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
+	GUISetBkColor(0xFFFFE1, $g_TooltipGUI) ; Light yellow background
+
+	Debug($imagePath)
+	Debug(FileExists($imagePath)	)
+	
+	; Add image if it exists
+	If FileExists($imagePath) Then
+		GUICtrlCreatePic($imagePath, 10, 10, 200, 150)
+	Else
+		GUICtrlCreateLabel("Image not found:", 10, 10, 200, 20)
+		GUICtrlCreateLabel($imagePath, 10, 35, 200, 100)
+	EndIf
+	
+	GUISetState(@SW_SHOW, $g_TooltipGUI)
+	
+	; Auto-close after 5 seconds or when clicking anywhere
+	AdlibRegister("_CloseImageTooltip", 5000)
+EndFunc   ;==>_ShowImageTooltip
+
+; Closes the custom image tooltip window
+Func _CloseImageTooltip()
+	If $g_TooltipGUI <> 0 Then
+		GUIDelete($g_TooltipGUI)
+		$g_TooltipGUI = 0
+		AdlibUnRegister("_CloseImageTooltip")
+	EndIf
+EndFunc   ;==>_CloseImageTooltip
 
 ; Exits the application
 Func QuitApp()
@@ -1672,10 +1769,10 @@ LoadMeetingConfig()
 _InitDayLabelMaps()
 
 ; Debugging functions here
-_GetZoomWindow()
-FocusZoomWindow()
-_GetZoomStatus()
-_SetDuringMeetingSettings()
+; _GetZoomWindow()
+; FocusZoomWindow()
+; _GetZoomStatus()
+; _SetDuringMeetingSettings()
 
 ; Main application loop
 While True
