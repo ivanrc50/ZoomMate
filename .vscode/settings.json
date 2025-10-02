@@ -1,6 +1,7 @@
 {
     "cSpell.words": [
         "AUTOIT",
+        "borderless",
         "BYCOMMAND",
         "CLSID",
         "confno",
@@ -11,6 +12,7 @@
         "LANGNAME",
         "Modeless",
         "NOCASESENSEBASIC",
+        "ONTOP",
         "PRIMARYDOUBLE",
         "PRIMARYDOWN",
         "RUNDEFMSG",

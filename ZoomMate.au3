@@ -17,6 +17,8 @@
 #include <TrayConstants.au3>
 #include <GuiMenu.au3>
 #include <GUIConstantsEx.au3>
+#include <WindowsStylesConstants.au3>
+#include <StaticConstants.au3>
 #include "Includes\UIA_Functions-a.au3"
 #include "Includes\CUIAutomation2.au3"
 
@@ -61,6 +63,7 @@ Global $idLanguagePicker                       ; Language dropdown control ID
 Global $g_FieldCtrls = ObjCreate("Scripting.Dictionary")  ; Maps field names to control IDs
 Global $g_ErrorAreaLabel = 0                   ; Error display label control ID
 Global $g_ConfigGUI = 0                        ; Configuration GUI handle
+Global $g_PleaseWaitGUI = 0                    ; Handle for the please-wait popup
 
 ; Day mapping containers for internationalization
 Global $g_DayLabelToNum = ObjCreate("Scripting.Dictionary")    ; Day name -> number (1-7)
@@ -1347,7 +1350,8 @@ EndFunc   ;==>_OpenParticipantsPanel
 ; @param $aSettings - Array of setting names to check
 ; @return Object - Dictionary containing setting states
 Func GetSecuritySettingsState($aSettings)
-	_OpenHostTools()
+	Local $oHostMenu = _OpenHostTools()
+	If Not IsObj($oHostMenu) Then Return False
 
 	; Create dictionary to store setting states
 	Local $oDict = ObjCreate("Scripting.Dictionary")
@@ -1356,7 +1360,7 @@ Func GetSecuritySettingsState($aSettings)
 		Local $sSetting = $aSettings[$i]
 
 		; Find the setting menu item
-		Local $oSetting = FindElementByPartialName($sSetting, Default, $oZoomWindow)
+		Local $oSetting = FindElementByPartialName($sSetting, Default, $oHostMenu)
 		Local $bEnabled = False
 		If IsObj($oSetting) Then
 			; Read the setting's label to determine if it's checked
@@ -1521,11 +1525,13 @@ EndFunc   ;==>_LaunchZoom
 ; - Disables screen sharing permission
 ; - Turns off host audio and video
 Func _SetPreAndPostMeetingSettings()
+	ShowPleaseWaitMessage()
 	FocusZoomWindow()               ; Ensure Zoom window is focused
 	SetSecuritySetting("Unmute", True)          ; Allow participants to unmute
 	SetSecuritySetting("Share screen", False)   ; Prevent screen sharing
 	ToggleFeed("Audio", False)                  ; Turn off host audio
 	ToggleFeed("Video", False)                  ; Turn off host video
+	HidePleaseWaitMessage()
 EndFunc   ;==>_SetPreAndPostMeetingSettings
 
 ; Configures settings during active meetings
@@ -1534,12 +1540,14 @@ EndFunc   ;==>_SetPreAndPostMeetingSettings
 ; - Mutes all participants
 ; - Turns on host audio and video
 Func _SetDuringMeetingSettings()
+	ShowPleaseWaitMessage()
 	FocusZoomWindow()                          ; Ensure Zoom window is focused
 	SetSecuritySetting("Unmute", False)         ; Prevent participant self-unmute
 	SetSecuritySetting("Share screen", False)   ; Prevent screen sharing
 	MuteAll()                                   ; Mute all participants
 	ToggleFeed("Audio", True)                   ; Turn on host audio
 	ToggleFeed("Video", True)                   ; Turn on host video
+	HidePleaseWaitMessage()
 EndFunc   ;==>_SetDuringMeetingSettings
 
 ; ================================================================================================
@@ -1609,10 +1617,38 @@ Func CheckMeetingWindow($meetingTime)
 	$g_InitialNotificationWasShown = True
 EndFunc   ;==>CheckMeetingWindow
 
-; ================================================================================================
-; APPLICATION INITIALIZATION AND MAIN LOOP
-; ================================================================================================
+Func ShowPleaseWaitMessage()
+    ; If already showing, bring to front
+    If $g_PleaseWaitGUI <> 0 Then
+        GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
+        WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
+        Return
+    EndIf
 
+    Local $iW = 280
+    Local $iH = 120
+    Local $iX = (@DesktopWidth - $iW) / 2
+    Local $iY = (@DesktopHeight - $iH) / 2
+
+    ; Create borderless, always-on-top popup on primary monitor
+    $g_PleaseWaitGUI = GUICreate("Please Wait", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
+    GUISetBkColor(0x0000FF, $g_PleaseWaitGUI) ; Blue background
+
+    ; Centered white label text
+    Local $idLbl = GUICtrlCreateLabel("please wait...", 0, 0, $iW, $iH, $SS_CENTER)
+    GUICtrlSetColor($idLbl, 0xFFFFFF)
+    GUICtrlSetFont($idLbl, 14, 800)
+
+    GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
+    WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
+EndFunc
+
+Func HidePleaseWaitMessage()
+    If $g_PleaseWaitGUI <> 0 Then
+        GUIDelete($g_PleaseWaitGUI)
+        $g_PleaseWaitGUI = 0
+    EndIf
+EndFunc   ;==>HidePleaseWaitMessage
 ; Load translations and configuration
 _LoadTranslations()
 LoadMeetingConfig()
