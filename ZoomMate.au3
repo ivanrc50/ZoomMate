@@ -84,6 +84,10 @@ Global $oZoomWindow = 0                        ; Zoom window element
 ; Meeting timing control
 Global $previousRunDay = -1                    ; Tracks day changes for state reset
 
+; Keyboard shortcut to trigger post-meeting settings
+Global $g_KeyboardShortcut = ""               ; Current keyboard shortcut (e.g., "^!z")
+Global $g_HotkeyRegistered = False             ; Tracks if hotkey is currently registered
+
 ; ================================================================================================
 ; USER SETTINGS MANAGEMENT
 ; ================================================================================================
@@ -278,6 +282,14 @@ Func LoadMeetingConfig()
 	$g_UserSettings.Add("Language", $lang)
 	$g_CurrentLang = $lang
 
+	; Load keyboard shortcut setting
+	Local $shortcut = IniRead($CONFIG_FILE, "General", "KeyboardShortcut", "")
+	$g_UserSettings.Add("KeyboardShortcut", $shortcut)
+	$g_KeyboardShortcut = $shortcut
+
+	; Register keyboard shortcut hotkey
+	_UpdateKeyboardShortcut()
+
 	; Check if all required settings are configured
 	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Or GetUserSetting("UncheckedValue") = "" Or GetUserSetting("CurrentlyUnmutedValue") = "" Or GetUserSetting("UnmuteAudioValue") = "" Or GetUserSetting("StopVideoValue") = "" Or GetUserSetting("StartVideoValue") = "" Then
 		; Open configuration GUI if any settings are missing
@@ -302,7 +314,7 @@ Func _GetIniSectionForKey($sKey)
 			Return "ZoomSettings"
 		Case "MidweekDay", "MidweekTime", "WeekendDay", "WeekendTime"
 			Return "Meetings"
-		Case "Language", "SnapZoomSide"
+		Case "Language", "SnapZoomSide", "KeyboardShortcut"
 			Return "General"
 		Case Else
 			Return "ZoomStrings"
@@ -339,6 +351,24 @@ Func _IsValidTime($s)
 	If $m < 0 Or $m > 59 Then Return False
 	Return True
 EndFunc   ;==>_IsValidTime
+
+; Validates keyboard shortcut format
+; @param $s - String to validate
+; @return Boolean - True if valid keyboard shortcut format
+Func _IsValidKeyboardShortcut($s)
+	$s = StringStripWS($s, 3)  ; Remove leading/trailing whitespace
+	If $s = "" Then Return True  ; Empty shortcut is valid (means no hotkey)
+
+	; Basic validation for AutoIt hotkey format: modifiers + key
+	; Valid modifiers: ^ (Ctrl), ! (Alt), + (Shift), # (Win)
+	; Valid keys: a-z, A-Z, 0-9, F1-F12, etc.
+	If Not StringRegExp($s, "^[\^\!\+\#]*[a-zA-Z0-9]$") Then Return False
+
+	; Must have at least one modifier key
+	If Not StringRegExp($s, "[\^\!\+\#]") Then Return False
+
+	Return True
+EndFunc   ;==>_IsValidKeyboardShortcut
 
 ; ================================================================================================
 ; CONFIGURATION GUI FUNCTIONS
@@ -377,6 +407,13 @@ Func ShowConfigGUI()
 	GUICtrlSetData($idSnapZoom, t("SNAP_DISABLED") & "|" & t("SNAP_LEFT") & "|" & t("SNAP_RIGHT"), $snapDisplay)
 	If Not $g_FieldCtrls.Exists("SnapZoomSide") Then $g_FieldCtrls.Add("SnapZoomSide", $idSnapZoom)
 	GUICtrlSetOnEvent($idSnapZoom, "CheckConfigFields")
+
+	; Keyboard shortcut configuration
+	GUICtrlCreateLabel(t("LABEL_KEYBOARD_SHORTCUT"), 10, 220, 120, 20)
+	Local $idKeyboardShortcut = GUICtrlCreateInput(GetUserSetting("KeyboardShortcut"), 140, 220, 160, 20)
+	GUICtrlSetTip($idKeyboardShortcut, t("LABEL_KEYBOARD_SHORTCUT_EXPLAIN"))
+	If Not $g_FieldCtrls.Exists("KeyboardShortcut") Then $g_FieldCtrls.Add("KeyboardShortcut", $idKeyboardShortcut)
+	GUICtrlSetOnEvent($idKeyboardShortcut, "CheckConfigFields")
 
 	; Meeting configuration fields
 	_AddTextInputField("MeetingID", t("LABEL_MEETING_ID"), 10, 10, 140, 10, 160)
@@ -575,6 +612,11 @@ Func CheckConfigFields()
 		If Not _IsValidTime(GUICtrlRead($midCtrl)) Then $ok = False
 		If Not _IsValidTime(GUICtrlRead($wkdCtrl)) Then $ok = False
 
+		; Validate keyboard shortcut format (if not empty)
+		Local $kbCtrl = $g_FieldCtrls.Item("KeyboardShortcut")
+		Local $kbVal = StringStripWS(GUICtrlRead($kbCtrl), 3)
+		If $kbVal <> "" And Not _IsValidKeyboardShortcut($kbVal) Then $ok = False
+
 		$allFilled = $ok
 	EndIf
 
@@ -627,6 +669,19 @@ Func CheckConfigFields()
 		If $sWkdVal <> "" Then
 			GUICtrlSetColor($g_FieldCtrls.Item("WeekendTime"), 0x000000)
 			GUICtrlSetTip($g_FieldCtrls.Item("WeekendTime"), "")
+		EndIf
+	EndIf
+
+	; Specific validation for keyboard shortcut
+	Local $sKbVal = StringStripWS(GUICtrlRead($g_FieldCtrls.Item("KeyboardShortcut")), 3)
+	If $sKbVal <> "" And Not _IsValidKeyboardShortcut($sKbVal) Then
+		$aMsgs &= ($aMsgs = "" ? t("ERROR_KEYBOARD_SHORTCUT_FORMAT") : "  •  " & t("ERROR_KEYBOARD_SHORTCUT_FORMAT"))
+		GUICtrlSetColor($g_FieldCtrls.Item("KeyboardShortcut"), 0xFF0000)
+		GUICtrlSetTip($g_FieldCtrls.Item("KeyboardShortcut"), t("ERROR_KEYBOARD_SHORTCUT_FORMAT"))
+	Else
+		If $sKbVal <> "" Then
+			GUICtrlSetColor($g_FieldCtrls.Item("KeyboardShortcut"), 0x000000)
+			GUICtrlSetTip($g_FieldCtrls.Item("KeyboardShortcut"), "")
 		EndIf
 	EndIf
 
@@ -710,8 +765,15 @@ Func SaveConfigGUI()
 	Local $selLang = "en"
 	If $g_LangNameToCode.Exists($selDisplay) Then $selLang = $g_LangNameToCode.Item($selDisplay)
 	$g_UserSettings.Add("Language", $selLang)
-	IniWrite($CONFIG_FILE, "General", "Language", GetUserSetting("Language"))
+		IniWrite($CONFIG_FILE, "General", "Language", GetUserSetting("Language"))
 	$g_CurrentLang = $selLang
+
+	; Save keyboard shortcut setting
+	IniWrite($CONFIG_FILE, "General", "KeyboardShortcut", GetUserSetting("KeyboardShortcut"))
+	$g_KeyboardShortcut = GetUserSetting("KeyboardShortcut")
+
+	; Register/unregister hotkey based on new setting
+	_UpdateKeyboardShortcut()
 
 	_InitDayLabelMaps() ; Refresh day labels for new language
 	$g_PrePostSettingsConfigured = False ; Reset pre/post meeting settings flag
@@ -1574,6 +1636,47 @@ Func _OpenParticipantsPanel()
 EndFunc   ;==>_OpenParticipantsPanel
 
 ; ================================================================================================
+; KEYBOARD SHORTCUT MANAGEMENT
+; ================================================================================================
+
+; Registers or unregisters the keyboard shortcut for manual trigger
+; Called when keyboard shortcut setting is changed
+Func _UpdateKeyboardShortcut()
+	; Unregister any currently registered hotkey
+	If $g_HotkeyRegistered Then
+		HotKeySet($g_KeyboardShortcut)
+		$g_HotkeyRegistered = False
+		Debug("Previous keyboard shortcut unregistered: " & $g_KeyboardShortcut, "DEBUG")
+	EndIf
+
+	; Update the global keyboard shortcut variable
+	$g_KeyboardShortcut = GetUserSetting("KeyboardShortcut")
+
+	; Register new hotkey if not empty
+	If $g_KeyboardShortcut <> "" Then
+		; Validate the shortcut format (basic validation)
+		If StringRegExp($g_KeyboardShortcut, "^[\^\!\+\#]+[a-zA-Z0-9]$") Then
+			HotKeySet($g_KeyboardShortcut, "_ManualTrigger")
+			$g_HotkeyRegistered = True
+			Debug("New keyboard shortcut registered: " & $g_KeyboardShortcut, "INFO")
+		Else
+			Debug("Invalid keyboard shortcut format: " & $g_KeyboardShortcut, "ERROR")
+			$g_KeyboardShortcut = ""
+			IniWrite($CONFIG_FILE, "General", "KeyboardShortcut", "")
+		EndIf
+	Else
+		Debug("Keyboard shortcut cleared", "INFO")
+	EndIf
+EndFunc   ;==>_UpdateKeyboardShortcut
+
+; Manual trigger function activated by keyboard shortcut
+; Allows user to manually apply post-meeting settings
+Func _ManualTrigger()	; Always apply post-meeting settings when keyboard shortcut is used
+	Debug("Manual trigger: Applying post-meeting settings", "INFO")
+	_SetPreAndPostMeetingSettings()
+EndFunc   ;==>_ManualTrigger
+
+; ================================================================================================
 ; ZOOM SETTINGS MANAGEMENT FUNCTIONS
 ; ================================================================================================
 
@@ -1768,6 +1871,7 @@ EndFunc   ;==>_LaunchZoom
 ; - Disables screen sharing permission
 ; - Turns off host audio and video
 Func _SetPreAndPostMeetingSettings()
+	Debug(t("INFO_CONFIG_BEFORE_AFTER_START"), "INFO")
 	ShowPleaseWaitMessage()
 	FocusZoomWindow()               ; Ensure Zoom window is focused
 	SetSecuritySetting("Unmute", True)          ; Allow participants to unmute
@@ -1775,6 +1879,7 @@ Func _SetPreAndPostMeetingSettings()
 	ToggleFeed("Audio", False)                  ; Turn off host audio
 	ToggleFeed("Video", False)                  ; Turn off host video
 	HidePleaseWaitMessage()
+	Debug(t("INFO_CONFIG_BEFORE_AFTER_DONE"), "INFO")
 EndFunc   ;==>_SetPreAndPostMeetingSettings
 
 ; Configures settings during active meetings
@@ -1783,6 +1888,7 @@ EndFunc   ;==>_SetPreAndPostMeetingSettings
 ; - Mutes all participants
 ; - Turns on host audio and video
 Func _SetDuringMeetingSettings()
+	Debug(t("INFO_MEETING_STARTING_SOON_CONFIG"), "INFO")
 	ShowPleaseWaitMessage()
 	FocusZoomWindow()                          ; Ensure Zoom window is focused
 	SetSecuritySetting("Unmute", False)         ; Prevent participant self-unmute
@@ -1791,6 +1897,7 @@ Func _SetDuringMeetingSettings()
 	ToggleFeed("Audio", True)                   ; Turn on host audio
 	ToggleFeed("Video", True)                   ; Turn on host video
 	HidePleaseWaitMessage()
+	Debug(t("INFO_CONFIG_DURING_MEETING_DONE"), "INFO")
 EndFunc   ;==>_SetDuringMeetingSettings
 
 ; ================================================================================================
@@ -1820,10 +1927,8 @@ Func CheckMeetingWindow($meetingTime)
 			If Not $zoomLaunched Then
 				Debug(t("ERROR_ZOOM_LAUNCH"), "ERROR")
 			Else
-				Debug(t("INFO_CONFIG_BEFORE_AFTER_START"), "INFO")
 				_SetPreAndPostMeetingSettings()
 				$g_PrePostSettingsConfigured = True
-				Debug(t("INFO_CONFIG_BEFORE_AFTER_DONE"), "INFO")
 			EndIf
 		EndIf
 
@@ -1834,10 +1939,8 @@ Func CheckMeetingWindow($meetingTime)
 			If Not $zoomExists Then
 				Debug(t("ERROR_ZOOM_WINDOW_NOT_FOUND"), "ERROR")
 			Else
-				Debug(t("INFO_MEETING_STARTING_SOON_CONFIG"), "INFO")
 				_SetDuringMeetingSettings()
 				$g_DuringMeetingSettingsConfigured = True
-				Debug(t("INFO_CONFIG_DURING_MEETING_DONE"), "INFO")
 			EndIf
 		EndIf
 
