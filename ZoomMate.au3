@@ -21,6 +21,7 @@
 #include <StaticConstants.au3>
 #include "Includes\UIA_Functions-a.au3"
 #include "Includes\CUIAutomation2.au3"
+#include <WinAPI.au3>
 
 ; ================================================================================================
 ; AUTOIT OPTIONS AND CONSTANTS
@@ -31,7 +32,6 @@ Opt("GUIOnEventMode", 1)         ; Enable GUI event mode
 Opt("TrayMenuMode", 3)           ; Custom tray menu (no default, no auto-pause)
 
 ; Windows API constants for GUI message handling
-Global Const $WM_COMMAND = 0x0111
 Global Const $EN_CHANGE = 0x0300
 Global Const $MF_BYCOMMAND = 0x00000000
 
@@ -63,7 +63,7 @@ Global $idLanguagePicker                       ; Language dropdown control ID
 Global $g_FieldCtrls = ObjCreate("Scripting.Dictionary")  ; Maps field names to control IDs
 Global $g_ErrorAreaLabel = 0                   ; Error display label control ID
 Global $g_ConfigGUI = 0                        ; Configuration GUI handle
-Global $g_PleaseWaitGUI = 0                    ; Handle for the please-wait popup
+Global $g_OverlayMessageGUI = 0                    ; Handle for the please-wait popup
 Global $g_TooltipGUI = 0                       ; Handle for custom image tooltip
 Global $g_InfoIconData = ObjCreate("Scripting.Dictionary")  ; Maps info icon IDs to image paths
 
@@ -269,6 +269,7 @@ Func LoadMeetingConfig()
 	$g_UserSettings.Add("UnmuteAudioValue", IniRead($CONFIG_FILE, "ZoomStrings", "UnmuteAudioValue", ""))
 	$g_UserSettings.Add("StopVideoValue", IniRead($CONFIG_FILE, "ZoomStrings", "StopVideoValue", ""))
 	$g_UserSettings.Add("StartVideoValue", IniRead($CONFIG_FILE, "ZoomStrings", "StartVideoValue", ""))
+	$g_UserSettings.Add("KeyboardShortcut", IniRead($CONFIG_FILE, "General", "KeyboardShortcut", ""))
 
 	; Window snapping preference (Disabled|Left|Right)
 	$g_UserSettings.Add("SnapZoomSide", IniRead($CONFIG_FILE, "General", "SnapZoomSide", "Disabled"))
@@ -283,12 +284,10 @@ Func LoadMeetingConfig()
 	$g_CurrentLang = $lang
 
 	; Load keyboard shortcut setting
-	Local $shortcut = IniRead($CONFIG_FILE, "General", "KeyboardShortcut", "")
-	$g_UserSettings.Add("KeyboardShortcut", $shortcut)
-	$g_KeyboardShortcut = $shortcut
-
-	; Register keyboard shortcut hotkey
-	_UpdateKeyboardShortcut()
+	$g_KeyboardShortcut = GetUserSetting("KeyboardShortcut")
+	If $g_KeyboardShortcut <> "" Then
+		_UpdateKeyboardShortcut()
+	EndIf
 
 	; Check if all required settings are configured
 	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Or GetUserSetting("UncheckedValue") = "" Or GetUserSetting("CurrentlyUnmutedValue") = "" Or GetUserSetting("UnmuteAudioValue") = "" Or GetUserSetting("StopVideoValue") = "" Or GetUserSetting("StartVideoValue") = "" Then
@@ -386,7 +385,7 @@ Func ShowConfigGUI()
 	_InitDayLabelMaps()
 
 	; Create main configuration window
-	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 570)
+	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 600)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "SaveConfigGUI", $g_ConfigGUI)
 
 	; Language selection dropdown
@@ -408,15 +407,8 @@ Func ShowConfigGUI()
 	If Not $g_FieldCtrls.Exists("SnapZoomSide") Then $g_FieldCtrls.Add("SnapZoomSide", $idSnapZoom)
 	GUICtrlSetOnEvent($idSnapZoom, "CheckConfigFields")
 
-	; Keyboard shortcut configuration
-	GUICtrlCreateLabel(t("LABEL_KEYBOARD_SHORTCUT"), 10, 220, 120, 20)
-	Local $idKeyboardShortcut = GUICtrlCreateInput(GetUserSetting("KeyboardShortcut"), 140, 220, 160, 20)
-	GUICtrlSetTip($idKeyboardShortcut, t("LABEL_KEYBOARD_SHORTCUT_EXPLAIN"))
-	If Not $g_FieldCtrls.Exists("KeyboardShortcut") Then $g_FieldCtrls.Add("KeyboardShortcut", $idKeyboardShortcut)
-	GUICtrlSetOnEvent($idKeyboardShortcut, "CheckConfigFields")
-
 	; Meeting configuration fields
-	_AddTextInputField("MeetingID", t("LABEL_MEETING_ID"), 10, 10, 140, 10, 160)
+	_AddTextInputField("MeetingID", t("LABEL_MEETING_ID"), 10, 10, 170, 10, 160)
 
 	; Midweek meeting settings
 	_AddDayDropdownField("MidweekDay", t("LABEL_MIDWEEK_DAY"), 10, 40, 200, 40, 100)
@@ -426,24 +418,26 @@ Func ShowConfigGUI()
 	_AddDayDropdownField("WeekendDay", t("LABEL_WEEKEND_DAY"), 10, 100, 200, 100, 100)
 	_AddTextInputField("WeekendTime", t("LABEL_WEEKEND_TIME"), 10, 130, 200, 130, 100)
 
+	_AddTextInputFieldWithTooltip("KeyboardShortcut", t("LABEL_KEYBOARD_SHORTCUT"), 10, 220, 140, 220, 160, "LABEL_KEYBOARD_SHORTCUT_EXPLAIN", '')
+
 	; Zoom UI element text values (for internationalization support)
-	_AddTextInputFieldWithTooltip("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 220, 140, 220, 160, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
-	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 250, 140, 250, 160, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
-	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, 280, 140, 280, 160, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
-	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, 310, 140, 310, 160, "LABEL_YES_EXPLAIN", "yes.jpg")
-	_AddTextInputFieldWithTooltip("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, 340, 140, 340, 160, "LABEL_UNCHECKED_VALUE_EXPLAIN", "unchecked.jpg")
-	_AddTextInputFieldWithTooltip("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, 370, 140, 370, 160, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "currently_unmuted.jpg")
-	_AddTextInputFieldWithTooltip("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, 400, 140, 400, 160, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "unmute_audio.jpg")
-	_AddTextInputFieldWithTooltip("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, 430, 140, 430, 160, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "stop_video.jpg")
-	_AddTextInputFieldWithTooltip("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, 460, 140, 460, 160, "LABEL_START_VIDEO_VALUE_EXPLAIN", "start_video.jpg")
+	_AddTextInputFieldWithTooltip("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 250, 140, 250, 160, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
+	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 280, 140, 280, 160, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
+	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, 310, 140, 310, 160, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
+	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, 340, 140, 340, 160, "LABEL_YES_EXPLAIN", "yes.jpg")
+	_AddTextInputFieldWithTooltip("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, 370, 140, 370, 160, "LABEL_UNCHECKED_VALUE_EXPLAIN", "unchecked.jpg")
+	_AddTextInputFieldWithTooltip("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, 400, 140, 400, 160, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "currently_unmuted.jpg")
+	_AddTextInputFieldWithTooltip("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, 430, 140, 430, 160, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "unmute_audio.jpg")
+	_AddTextInputFieldWithTooltip("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, 460, 140, 460, 160, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "stop_video.jpg")
+	_AddTextInputFieldWithTooltip("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, 490, 140, 490, 160, "LABEL_START_VIDEO_VALUE_EXPLAIN", "start_video.jpg")
 
 	; Error display area
-	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 500, 300, 20)
+	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 520, 300, 20)
 	GUICtrlSetColor($g_ErrorAreaLabel, 0xFF0000) ; Red text for errors
 
 	; Action buttons
-	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 530, 80, 30)
-	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 530, 80, 30)
+	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 550, 80, 30)
+	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 550, 80, 30)
 
 	; Set initial button states
 	GUICtrlSetState($idSaveBtn, $GUI_DISABLE)  ; Disabled until all fields valid
@@ -462,39 +456,73 @@ Func ShowConfigGUI()
 	GUIRegisterMsg($WM_COMMAND, "_WM_COMMAND_EditChange")
 EndFunc   ;==>ShowConfigGUI
 
-Func ShowPleaseWaitMessage()
-	; If already showing, bring to front
-	If $g_PleaseWaitGUI <> 0 Then
-		GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
-		WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
+; Shows a message dialog during long operations with i18n support
+; @param $messageType - Type of message to show ('PLEASE_WAIT' or 'POST_MEETING_HIT_KEY')
+Func ShowOverlayMessage($messageType = 'PLEASE_WAIT')
+	; If already showing, just update it
+	If $g_OverlayMessageGUI <> 0 Then
+		; Update existing GUI with new message
+		Local $title = t($messageType & '_TITLE')
+		Local $text = t($messageType & '_TEXT')
+		WinSetTitle($g_OverlayMessageGUI, '', $title)
+		Local $idLbl = _GetOverlayMessageLabelControl()
+		If $idLbl <> 0 Then
+			; Use GUICtrl functions since we have the control ID
+			GUICtrlSetData($idLbl, $text)
+			; Update font styling to use default Windows system font
+			GUICtrlSetFont($idLbl, 14, 700, Default, "Segoe UI")
+		EndIf
+		GUISetState(@SW_SHOW, $g_OverlayMessageGUI)
+		WinSetOnTop(HWnd($g_OverlayMessageGUI), '', $WINDOWS_ONTOP)
 		Return
 	EndIf
 
-	Local $iW = 280
-	Local $iH = 120
+	Local $iW = 350
+	Local $iH = 140
 	Local $iX = (@DesktopWidth - $iW) / 2
 	Local $iY = (@DesktopHeight - $iH) / 2
 
 	; Create borderless, always-on-top popup on primary monitor
-	$g_PleaseWaitGUI = GUICreate("Please Wait", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
-	GUISetBkColor(0x0000FF, $g_PleaseWaitGUI) ; Blue background
+	$g_OverlayMessageGUI = GUICreate(t($messageType & '_TITLE'), $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
+	GUISetBkColor(0x0000FF, $g_OverlayMessageGUI) ; Blue background
 
-	; Centered white label text
-	Local $idLbl = GUICtrlCreateLabel("please wait...", 0, 0, $iW, $iH, $SS_CENTER)
+	; Create a label that supports both centering and word wrapping
+	Local $idLbl = GUICtrlCreateLabel(t($messageType & '_TEXT'), 10, 10, $iW - 20, $iH - 20, $SS_CENTER)
 	GUICtrlSetColor($idLbl, 0xFFFFFF)
-	GUICtrlSetFont($idLbl, 14, 800)
+	GUICtrlSetFont($idLbl, 14, 700, Default, "Segoe UI") ; Use default Windows system font
 
-	GUISetState(@SW_SHOW, $g_PleaseWaitGUI)
-	WinSetOnTop(HWnd($g_PleaseWaitGUI), "", $WINDOWS_ONTOP)
-EndFunc   ;==>ShowPleaseWaitMessage
+	GUISetState(@SW_SHOW, $g_OverlayMessageGUI)
+	WinSetOnTop(HWnd($g_OverlayMessageGUI), '', $WINDOWS_ONTOP)
+EndFunc   ;==>ShowOverlayMessage
 
 ; Hides and destroys the "Please Wait" message dialog
-Func HidePleaseWaitMessage()
-	If $g_PleaseWaitGUI <> 0 Then
-		GUIDelete($g_PleaseWaitGUI)
-		$g_PleaseWaitGUI = 0
+Func HideOverlayMessage()
+	If $g_OverlayMessageGUI <> 0 Then
+		GUIDelete($g_OverlayMessageGUI)
+		$g_OverlayMessageGUI = 0
 	EndIf
-EndFunc   ;==>HidePleaseWaitMessage
+EndFunc   ;==>HideOverlayMessage
+
+Func _GetOverlayMessageLabelControl()
+	If $g_OverlayMessageGUI = 0 Then Return 0
+
+	; Get all controls in the GUI using WinAPI
+	Local $aControls = _WinAPI_EnumChildWindows($g_OverlayMessageGUI)
+	If @error Or Not IsArray($aControls) Then Return 0
+
+	; Find the label control (usually the first and only control)
+	For $i = 1 To $aControls[0][0]
+		Local $hCtrl = $aControls[$i][0]
+		Local $sClass = _WinAPI_GetClassName($hCtrl)
+		If $sClass = "Static" Then
+			; Try to get the control ID from the handle
+			Local $ctrlID = _WinAPI_GetDlgCtrlID($hCtrl)
+			If $ctrlID > 0 Then Return $ctrlID
+		EndIf
+	Next
+
+	Return 0
+EndFunc   ;==>_GetOverlayMessageLabelControl
 
 ; Helper function to add text input field with label
 ; @param $key - Settings key name
@@ -588,13 +616,13 @@ Func CheckConfigFields()
 
 	; Check if all fields have values
 	For $sKey In $g_FieldCtrls.Keys
-		Local $ctrlId = $g_FieldCtrls.Item($sKey)
-		Local $val = StringStripWS(GUICtrlRead($ctrlId), 3)
+		Local $ctrlID = $g_FieldCtrls.Item($sKey)
+		Local $val = StringStripWS(GUICtrlRead($ctrlID), 3)
 		If $val = "" Then
 			$allFilled = False
 			; Mark required field with tooltip and light red background
-			GUICtrlSetTip($ctrlId, t("ERROR_REQUIRED"))
-			GUICtrlSetBkColor($ctrlId, 0xEEDDDD)
+			GUICtrlSetTip($ctrlID, t("ERROR_REQUIRED"))
+			GUICtrlSetBkColor($ctrlID, 0xEEDDDD)
 		EndIf
 	Next
 
@@ -737,8 +765,8 @@ Func SaveConfigGUI()
 
 	; Save all field values to settings and INI file
 	For $sKey In $g_FieldCtrls.Keys
-		Local $ctrlId = $g_FieldCtrls.Item($sKey)
-		Local $val = StringStripWS(GUICtrlRead($ctrlId), 3)
+		Local $ctrlID = $g_FieldCtrls.Item($sKey)
+		Local $val = StringStripWS(GUICtrlRead($ctrlID), 3)
 
 		; Convert day labels back to numbers for storage
 		If ($sKey = "MidweekDay" Or $sKey = "WeekendDay") Then
@@ -765,7 +793,7 @@ Func SaveConfigGUI()
 	Local $selLang = "en"
 	If $g_LangNameToCode.Exists($selDisplay) Then $selLang = $g_LangNameToCode.Item($selDisplay)
 	$g_UserSettings.Add("Language", $selLang)
-		IniWrite($CONFIG_FILE, "General", "Language", GetUserSetting("Language"))
+	IniWrite($CONFIG_FILE, "General", "Language", GetUserSetting("Language"))
 	$g_CurrentLang = $selLang
 
 	; Save keyboard shortcut setting
@@ -989,9 +1017,13 @@ EndFunc   ;==>FocusZoomWindow
 
 
 ; Snaps the Zoom window to a side of the primary monitor
-; @param $side - "Left" or "Right"
 ; @return Boolean - True if moved, False otherwise
-Func _SnapZoomWindowToSide($side)
+Func _SnapZoomWindowToSide()
+	Local $snapSide = GetUserSetting("SnapZoomSide")
+	If StringLower($snapSide) = "disabled" Then
+		Return False
+	EndIf
+
 	Local $oZoomWindow = _GetZoomWindow()
 	If Not IsObj($oZoomWindow) Then
 		Debug("_SnapZoomWindowToSide: Zoom window not found", "WARN")
@@ -1011,13 +1043,13 @@ Func _SnapZoomWindowToSide($side)
 	Local $screenW = @DesktopWidth
 	Local $screenH = @DesktopHeight
 	Local $x = 0, $y = 0, $w = Int($screenW / 2), $h = $screenH
-	If StringLower($side) = "right" Then
+	If StringLower($snapSide) = "right" Then
 		$x = $w
 	EndIf
 
 	; Move and resize
 	WinMove($hWnd, "", $x, $y, $w, $h)
-	Debug("Zoom window snapped to " & $side & " half of primary monitor.", "DEBUG")
+	Debug("Zoom window snapped to " & $snapSide & " half of primary monitor.", "DEBUG")
 	Return True
 EndFunc   ;==>_SnapZoomWindowToSide
 
@@ -1629,6 +1661,7 @@ Func _OpenParticipantsPanel()
 	$oParticipantsPanel = FindElementByPartialName(GetUserSetting("ParticipantValue"), $ListType, $oZoomWindow)
 	If IsObj($oParticipantsPanel) Then
 		Debug("Participants panel opened.", "UIA")
+		_SnapZoomWindowToSide()
 	Else
 		Debug("Failed to open Participants panel.", "ERROR")
 	EndIf
@@ -1658,23 +1691,77 @@ Func _UpdateKeyboardShortcut()
 		If StringRegExp($g_KeyboardShortcut, "^[\^\!\+\#]+[a-zA-Z0-9]$") Then
 			HotKeySet($g_KeyboardShortcut, "_ManualTrigger")
 			$g_HotkeyRegistered = True
-			Debug("New keyboard shortcut registered: " & $g_KeyboardShortcut, "INFO")
+			Debug("New keyboard shortcut registered: " & $g_KeyboardShortcut, "DEBUG")
 		Else
 			Debug("Invalid keyboard shortcut format: " & $g_KeyboardShortcut, "ERROR")
 			$g_KeyboardShortcut = ""
 			IniWrite($CONFIG_FILE, "General", "KeyboardShortcut", "")
 		EndIf
 	Else
-		Debug("Keyboard shortcut cleared", "INFO")
+		Debug("Keyboard shortcut cleared", "DEBUG")
 	EndIf
 EndFunc   ;==>_UpdateKeyboardShortcut
 
 ; Manual trigger function activated by keyboard shortcut
 ; Allows user to manually apply post-meeting settings
-Func _ManualTrigger()	; Always apply post-meeting settings when keyboard shortcut is used
-	Debug("Manual trigger: Applying post-meeting settings", "INFO")
-	_SetPreAndPostMeetingSettings()
+Func _ManualTrigger()    ; Show message and wait for user input before applying settings
+	Debug("Manual trigger: Showing post-meeting message", "DEBUG")
+
+	; Show the post-meeting message and wait for Enter key
+	ShowOverlayMessage('POST_MEETING_HIT_KEY')
+
+	; Wait for user to press Enter or ESC
+	Local $userInput = _WaitForEnterOrEscape()
+
+	; Hide the message
+	HideOverlayMessage()
+
+	; Apply settings if user pressed Enter
+	If $userInput = "ENTER" Then
+		Debug("User pressed Enter: Applying post-meeting settings", "DEBUG")
+		_SetPreAndPostMeetingSettings()
+	Else
+		Debug("User pressed Escape or closed dialog: Cancelling", "DEBUG")
+	EndIf
 EndFunc   ;==>_ManualTrigger
+
+; Waits for user to press Enter or Escape key
+; @return String - "ENTER" if Enter was pressed, "ESCAPE" if Escape was pressed or dialog closed
+Func _WaitForEnterOrEscape()
+	Local $hUser32 = DllOpen("user32.dll")
+
+	While True
+		; Check for Enter key
+		If _IsKeyPressed($hUser32, 0x0D) Then ; VK_RETURN
+			DllClose($hUser32)
+			Return "ENTER"
+		EndIf
+
+		; Check for Escape key
+		If _IsKeyPressed($hUser32, 0x1B) Then ; VK_ESCAPE
+			DllClose($hUser32)
+			Return "ESCAPE"
+		EndIf
+
+		; Check if GUI was closed (handle becomes invalid)
+		If $g_OverlayMessageGUI = 0 Or Not WinExists(HWnd($g_OverlayMessageGUI)) Then
+			DllClose($hUser32)
+			Return "ESCAPE"
+		EndIf
+
+		ResponsiveSleep(0.1) ; Small delay to avoid high CPU usage
+	WEnd
+EndFunc   ;==>_WaitForEnterOrEscape
+
+; Helper function to check if a key is currently pressed
+; @param $hDLL - Handle to user32.dll
+; @param $iKeyCode - Virtual key code to check
+; @return Boolean - True if key is pressed
+Func _IsKeyPressed($hDLL, $iKeyCode)
+	Local $aRet = DllCall($hDLL, "short", "GetAsyncKeyState", "int", $iKeyCode)
+	If @error Or Not IsArray($aRet) Then Return False
+	Return BitAND($aRet[0], 0x8000) <> 0
+EndFunc   ;==>_IsKeyPressed
 
 ; ================================================================================================
 ; ZOOM SETTINGS MANAGEMENT FUNCTIONS
@@ -1856,12 +1943,7 @@ Func _LaunchZoom()
 	Debug(t("INFO_ZOOM_LAUNCHED") & ": " & $meetingID, "INFO")
 	ResponsiveSleep(10)  ; Wait for Zoom to launch
 
-	; Optionally snap the Zoom window to the selected side
-	Local $snapSide = GetUserSetting("SnapZoomSide")
-	If StringLower($snapSide) <> "disabled" Then
-		FocusZoomWindow()
-		_SnapZoomWindowToSide($snapSide)
-	EndIf
+	_SnapZoomWindowToSide()
 
 	Return IsObj(_GetZoomWindow())
 EndFunc   ;==>_LaunchZoom
@@ -1872,13 +1954,14 @@ EndFunc   ;==>_LaunchZoom
 ; - Turns off host audio and video
 Func _SetPreAndPostMeetingSettings()
 	Debug(t("INFO_CONFIG_BEFORE_AFTER_START"), "INFO")
-	ShowPleaseWaitMessage()
+	ShowOverlayMessage('PLEASE_WAIT')
 	FocusZoomWindow()               ; Ensure Zoom window is focused
 	SetSecuritySetting("Unmute", True)          ; Allow participants to unmute
 	SetSecuritySetting("Share screen", False)   ; Prevent screen sharing
 	ToggleFeed("Audio", False)                  ; Turn off host audio
 	ToggleFeed("Video", False)                  ; Turn off host video
-	HidePleaseWaitMessage()
+	; TODO: Unmute All function
+	HideOverlayMessage()
 	Debug(t("INFO_CONFIG_BEFORE_AFTER_DONE"), "INFO")
 EndFunc   ;==>_SetPreAndPostMeetingSettings
 
@@ -1889,14 +1972,14 @@ EndFunc   ;==>_SetPreAndPostMeetingSettings
 ; - Turns on host audio and video
 Func _SetDuringMeetingSettings()
 	Debug(t("INFO_MEETING_STARTING_SOON_CONFIG"), "INFO")
-	ShowPleaseWaitMessage()
+	ShowOverlayMessage('PLEASE_WAIT')
 	FocusZoomWindow()                          ; Ensure Zoom window is focused
 	SetSecuritySetting("Unmute", False)         ; Prevent participant self-unmute
 	SetSecuritySetting("Share screen", False)   ; Prevent screen sharing
 	MuteAll()                                   ; Mute all participants
 	ToggleFeed("Audio", True)                   ; Turn on host audio
 	ToggleFeed("Video", True)                   ; Turn on host video
-	HidePleaseWaitMessage()
+	HideOverlayMessage()
 	Debug(t("INFO_CONFIG_DURING_MEETING_DONE"), "INFO")
 EndFunc   ;==>_SetDuringMeetingSettings
 
