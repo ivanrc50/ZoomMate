@@ -260,6 +260,11 @@ Func LoadMeetingConfig()
 	$g_UserSettings.Add("MuteAllValue", IniRead($CONFIG_FILE, "ZoomStrings", "MuteAllValue", ""))
 	$g_UserSettings.Add("MoreMeetingControlsValue", IniRead($CONFIG_FILE, "ZoomStrings", "MoreMeetingControlsValue", ""))
 	$g_UserSettings.Add("YesValue", IniRead($CONFIG_FILE, "ZoomStrings", "YesValue", ""))
+	$g_UserSettings.Add("UncheckedValue", IniRead($CONFIG_FILE, "ZoomStrings", "UncheckedValue", ""))
+	$g_UserSettings.Add("CurrentlyUnmutedValue", IniRead($CONFIG_FILE, "ZoomStrings", "CurrentlyUnmutedValue", ""))
+	$g_UserSettings.Add("UnmuteAudioValue", IniRead($CONFIG_FILE, "ZoomStrings", "UnmuteAudioValue", ""))
+	$g_UserSettings.Add("StopVideoValue", IniRead($CONFIG_FILE, "ZoomStrings", "StopVideoValue", ""))
+	$g_UserSettings.Add("StartVideoValue", IniRead($CONFIG_FILE, "ZoomStrings", "StartVideoValue", ""))
 
 	; Window snapping preference (Disabled|Left|Right)
 	$g_UserSettings.Add("SnapZoomSide", IniRead($CONFIG_FILE, "General", "SnapZoomSide", "Disabled"))
@@ -274,7 +279,7 @@ Func LoadMeetingConfig()
 	$g_CurrentLang = $lang
 
 	; Check if all required settings are configured
-	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Then
+	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Or GetUserSetting("UncheckedValue") = "" Or GetUserSetting("CurrentlyUnmutedValue") = "" Or GetUserSetting("UnmuteAudioValue") = "" Or GetUserSetting("StopVideoValue") = "" Or GetUserSetting("StartVideoValue") = "" Then
 		; Open configuration GUI if any settings are missing
 		ShowConfigGUI()
 		While $g_ConfigGUI
@@ -351,7 +356,7 @@ Func ShowConfigGUI()
 	_InitDayLabelMaps()
 
 	; Create main configuration window
-	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 510)
+	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 570)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "SaveConfigGUI", $g_ConfigGUI)
 
 	; Language selection dropdown
@@ -389,14 +394,19 @@ Func ShowConfigGUI()
 	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 250, 140, 250, 160, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
 	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, 280, 140, 280, 160, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
 	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, 310, 140, 310, 160, "LABEL_YES_EXPLAIN", "yes.jpg")
+	_AddTextInputFieldWithTooltip("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, 340, 140, 340, 160, "LABEL_UNCHECKED_VALUE_EXPLAIN", "unchecked.jpg")
+	_AddTextInputFieldWithTooltip("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, 370, 140, 370, 160, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "currently_unmuted.jpg")
+	_AddTextInputFieldWithTooltip("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, 400, 140, 400, 160, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "unmute_audio.jpg")
+	_AddTextInputFieldWithTooltip("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, 430, 140, 430, 160, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "stop_video.jpg")
+	_AddTextInputFieldWithTooltip("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, 460, 140, 460, 160, "LABEL_START_VIDEO_VALUE_EXPLAIN", "start_video.jpg")
 
 	; Error display area
-	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 370, 300, 20)
+	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 500, 300, 20)
 	GUICtrlSetColor($g_ErrorAreaLabel, 0xFF0000) ; Red text for errors
 
 	; Action buttons
-	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 400, 80, 30)
-	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 400, 80, 30)
+	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 530, 80, 30)
+	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 530, 80, 30)
 
 	; Set initial button states
 	GUICtrlSetState($idSaveBtn, $GUI_DISABLE)  ; Disabled until all fields valid
@@ -759,7 +769,7 @@ Func _ShowImageTooltip()
 	GUISetState(@SW_SHOW, $g_TooltipGUI)
 
 	; Auto-close after 5 seconds or when clicking anywhere
-	AdlibRegister("_CloseImageTooltip", 5000)
+	AdlibRegister("_CloseImageTooltip", 3000)
 EndFunc   ;==>_ShowImageTooltip
 
 ; Closes the custom image tooltip window
@@ -1590,7 +1600,7 @@ Func GetSecuritySettingsState($aSettings)
 			Local $sLabelLower = StringLower($sLabel)
 
 			; Setting is enabled if NOT marked as "unchecked"
-			$bEnabled = Not StringRegExp($sLabelLower, "\bunchecked\b")
+			$bEnabled = Not StringRegExp($sLabelLower, "\b" & StringLower(GetUserSetting("UncheckedValue")) & "\b")
 		Else
 			Debug(t("ERROR_SETTING_NOT_FOUND") & ": '" & $sSetting & "'", "ERROR")
 		EndIf
@@ -1617,7 +1627,7 @@ Func SetSecuritySetting($sSetting, $bDesired)
 	Local $sLabel
 	$oSetting.GetCurrentPropertyValue($UIA_NamePropertyId, $sLabel)
 	Local $sLabelLower = StringLower($sLabel)
-	Local $bEnabled = Not StringRegExp($sLabelLower, "\bunchecked\b")
+	Local $bEnabled = Not StringRegExp($sLabelLower, "\b" & StringLower(GetUserSetting("UncheckedValue")) & "\b")
 
 	Debug("Setting '" & $sLabel & "' | Current: " & $bEnabled & " | Desired: " & $bDesired, "DEBUG")
 
@@ -1643,8 +1653,8 @@ Func ToggleFeed($feedType, $desiredState)
 
 	If $feedType = "Video" Then
 		; Check for video control buttons to determine current state
-		Local $stopMyVideoButton = FindElementByPartialName("Stop my video", Default, $oZoomWindow)
-		Local $startMyVideoButton = FindElementByPartialName("Start my video", Default, $oZoomWindow)
+		Local $stopMyVideoButton = FindElementByPartialName(GetUserSetting("StopVideoValue"), Default, $oZoomWindow)
+		Local $startMyVideoButton = FindElementByPartialName(GetUserSetting("StartVideoValue"), Default, $oZoomWindow)
 		$currentlyEnabled = IsObj($stopMyVideoButton)
 
 		; Toggle if needed
@@ -1660,8 +1670,8 @@ Func ToggleFeed($feedType, $desiredState)
 
 	ElseIf $feedType = "Audio" Then
 		; Check for audio control buttons to determine current state
-		Local $muteHostButton = FindElementByPartialName("currently unmuted", Default, $oZoomWindow)
-		Local $unmuteHostButton = FindElementByPartialName("Unmute my audio", Default, $oZoomWindow)
+		Local $muteHostButton = FindElementByPartialName(GetUserSetting("CurrentlyUnmutedValue"), Default, $oZoomWindow)
+		Local $unmuteHostButton = FindElementByPartialName(GetUserSetting("UnmuteAudioValue"), Default, $oZoomWindow)
 		$currentlyEnabled = IsObj($muteHostButton)
 
 		; Toggle if needed
@@ -1713,14 +1723,14 @@ Func DialogClick($ClassName, $ButtonLabel)
 EndFunc   ;==>DialogClick
 
 ; Displays current status of Zoom security settings (for debugging)
-Func _GetZoomStatus()
-	Local $aSettings[2] = ["Unmute themselves", "Share screen"]
-	Local $oStates = GetSecuritySettingsState($aSettings)
+; Func _GetZoomStatus()
+; 	Local $aSettings[2] = ["Unmute themselves", "Share screen"]
+; 	Local $oStates = GetSecuritySettingsState($aSettings)
 
-	For $sKey In $oStates.Keys
-		Debug($sKey & " = " & ($oStates.Item($sKey) ? "ENABLED" : "DISABLED"), "ZOOM STATUS")
-	Next
-EndFunc   ;==>_GetZoomStatus
+; 	For $sKey In $oStates.Keys
+; 		Debug($sKey & " = " & ($oStates.Item($sKey) ? "ENABLED" : "DISABLED"), "ZOOM STATUS")
+; 	Next
+; EndFunc   ;==>_GetZoomStatus
 
 ; ================================================================================================
 ; MEETING AUTOMATION FUNCTIONS
@@ -1859,7 +1869,6 @@ _InitDayLabelMaps()
 ; _LaunchZoom()
 ; _GetZoomWindow()
 ; FocusZoomWindow()
-; _GetZoomStatus()
 ; _SetDuringMeetingSettings()
 
 ; Main application loop
