@@ -39,7 +39,7 @@ jobs:
           & $autoItPath /in "ZoomMate.au3" /out "ZoomMate.exe" /icon $iconPath
         } else {
           Write-Host "Icon file not found, compiling without icon"
-          & $autoItPath /in "ZoomMate.au3" /out "ZoomMate.exe"
+          & $autoItPath /in "ZoomMate.au3" /out "build/ZoomMate.exe"
         }
 
     - name: Verify compilation
