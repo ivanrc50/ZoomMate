@@ -33,28 +33,18 @@ jobs:
         $autoItPath = "${env:ProgramFiles(x86)}\AutoIt3\Aut2exe\Aut2exe.exe"
         $iconPath = "zoommate.ico"
         $buildDir = "build"
-        
         # Create build directory if it doesn't exist
         if (!(Test-Path $buildDir)) {
           New-Item -ItemType Directory -Path $buildDir
         }
         
-        # Find all translation files and build file parameters
-        $fileParams = ""
-        if (Test-Path "i18n") {
-          $iniFiles = Get-ChildItem -Path "i18n" -Name "*.ini" -Recurse
-          foreach ($file in $iniFiles) {
-            $fileParams += " /file ""i18n\$file"""
-          }
-        }
-        
         # Check if icon file exists
         if (Test-Path $iconPath) {
           Write-Host "Using icon: $iconPath"
-          $compileCmd = "& ""$autoItPath"" /in ""ZoomMate.au3"" /out ""$buildDir\ZoomMate.exe"" /icon ""$iconPath""$fileParams"
+          $compileCmd = "& ""$autoItPath"" /in ""ZoomMate.au3"" /out ""$buildDir\ZoomMate.exe"" /icon ""$iconPath"""
         } else {
           Write-Host "Icon file not found, compiling without icon"
-          $compileCmd = "& ""$autoItPath"" /in ""ZoomMate.au3"" /out ""$buildDir\ZoomMate.exe""$fileParams"
+          $compileCmd = "& ""$autoItPath"" /in ""ZoomMate.au3"" /out ""$buildDir\ZoomMate.exe"""
         }
         
         Write-Host "Compilation command: $compileCmd"

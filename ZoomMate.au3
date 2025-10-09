@@ -9,6 +9,14 @@
 ; COMPILER DIRECTIVES AND INCLUDES
 ; ================================================================================================
 #AutoIt3Wrapper_UseX64=y
+#AutoIt3Wrapper_Res_File_Add=images\host_tools.jpg, rt_rcdata, host_tools_jpg
+#AutoIt3Wrapper_Res_File_Add=images\more_meeting_controls.jpg, rt_rcdata, more_meeting_controls_jpg
+#AutoIt3Wrapper_Res_File_Add=images\participant.jpg, rt_rcdata, participant_jpg
+#AutoIt3Wrapper_Res_File_Add=images\mute_all.jpg, rt_rcdata, mute_all_jpg
+#AutoIt3Wrapper_Res_File_Add=images\yes.jpg, rt_rcdata, yes_jpg
+#AutoIt3Wrapper_Res_File_Add=images\security_unmute.jpg, rt_rcdata, security_unmute_jpg
+#AutoIt3Wrapper_Res_File_Add=images\security_share_screen.jpg, rt_rcdata, security_share_screen_jpg
+#AutoIt3Wrapper_Res_File_Add=images\placeholder.jpg, rt_rcdata, placeholder_jpg
 #include <MsgBoxConstants.au3>
 #include <Array.au3>
 #include <FileConstants.au3>
@@ -23,6 +31,7 @@
 #include <EditConstants.au3>
 #include "Includes\UIA_Functions-a.au3"
 #include "Includes\CUIAutomation2.au3"
+#include "Includes\i18n.au3"
 
 ; ================================================================================================
 ; AUTOIT OPTIONS AND CONSTANTS
@@ -130,97 +139,27 @@ EndFunc   ;==>_UTF8ToString
 ; @param $p0-$p2 - Optional placeholder values for {0}, {1}, {2} substitution
 ; @return String - Translated text with placeholders replaced
 Func t($key, $p0 = Default, $p1 = Default, $p2 = Default)
-	; Try current language first
-	If $g_Languages.Exists($g_CurrentLang) Then
-		Local $oDict = $g_Languages.Item($g_CurrentLang)
-		If $oDict.Exists($key) Then
-			Local $s = $oDict.Item($key)
-			; Replace placeholders if provided
-			If $p0 <> Default Then $s = StringReplace($s, "{0}", $p0, 0, $STR_CASESENSE)
-			If $p1 <> Default Then $s = StringReplace($s, "{1}", $p1, 0, $STR_CASESENSE)
-			If $p2 <> Default Then $s = StringReplace($s, "{2}", $p2, 0, $STR_CASESENSE)
-			Return $s
-		EndIf
-	EndIf
+	; Get the configured language from settings (fallback to English if not set)
+	Local $currentLang = GetUserSetting("Language")
+	If $currentLang = "" Then $currentLang = "en"
 
-	; Fallback to English if current language doesn't have the key
-	If $g_Languages.Exists("en") Then
-		Local $oEn = $g_Languages.Item("en")
-		If $oEn.Exists($key) Then
-			Local $s2 = $oEn.Item($key)
-			If $p0 <> Default Then $s2 = StringReplace($s2, "{0}", $p0, 0, $STR_CASESENSE)
-			If $p1 <> Default Then $s2 = StringReplace($s2, "{1}", $p1, 0, $STR_CASESENSE)
-			If $p2 <> Default Then $s2 = StringReplace($s2, "{2}", $p2, 0, $STR_CASESENSE)
-			Return $s2
-		EndIf
+	; Get translations for the current language
+	Local $translations = _GetLanguageTranslations($currentLang)
+
+	If $translations.Exists($key) Then
+		Local $s = $translations.Item($key)
+		; Replace placeholders if provided
+		If $p0 <> Default Then $s = StringReplace($s, "{0}", $p0, 0, $STR_CASESENSE)
+		If $p1 <> Default Then $s = StringReplace($s, "{1}", $p1, 0, $STR_CASESENSE)
+		If $p2 <> Default Then $s = StringReplace($s, "{2}", $p2, 0, $STR_CASESENSE)
+		Return $s
 	EndIf
 
 	; Ultimate fallback: return the key itself
 	Return $key
 EndFunc   ;==>t
 
-; Loads all translation files from the i18n directory
-; Scans for *.ini files and builds language dictionaries
-Func _LoadTranslations()
-	Local $sDir = @ScriptDir & "\i18n\*.ini"
-	Local $hSearch = FileFindFirstFile($sDir)
-	If $hSearch = -1 Then Return ; No translation files found
 
-	While 1
-		Local $sFile = FileFindNextFile($hSearch)
-		If @error Then ExitLoop
-
-		; Extract language code from filename (remove .ini extension)
-		Local $lang = StringTrimRight($sFile, 4)
-		Local $fullPath = @ScriptDir & "\i18n\" & $sFile
-
-		; Read all translations from the [translations] section
-		Local $a = IniReadSection($fullPath, "translations")
-		If @error Then ContinueLoop
-
-		; Build translation dictionary for this language
-		Local $dict = ObjCreate("Scripting.Dictionary")
-		For $i = 1 To $a[0][0]
-			; Apply UTF-8 to Unicode conversion for translation values
-			Local $sKey = $a[$i][0]
-			Local $sValue = _StringToUTF8($a[$i][1])
-			$dict.Add($sKey, $sValue)
-		Next
-
-		; Store language dictionary
-		If $g_Languages.Exists($lang) Then $g_Languages.Remove($lang)
-		$g_Languages.Add($lang, $dict)
-
-		; Build language name mappings for GUI dropdown
-		Local $langName = ""
-		If $dict.Exists("LANGNAME") Then $langName = $dict.Item("LANGNAME")
-		If $langName = "" Then $langName = $lang ; Use code as fallback
-
-		If $g_LangCodeToName.Exists($lang) Then $g_LangCodeToName.Remove($lang)
-		$g_LangCodeToName.Add($lang, $langName)
-		If $g_LangNameToCode.Exists($langName) Then $g_LangNameToCode.Remove($langName)
-		$g_LangNameToCode.Add($langName, $lang)
-	WEnd
-	FileClose($hSearch)
-EndFunc   ;==>_LoadTranslations
-
-; Builds a comma-separated list of available language display names
-; @return String - Comma-separated list of language names
-Func _ListAvailableLanguageNames()
-	Local $list = ""
-	For $name In $g_LangNameToCode.Keys
-		$list &= ($list = "" ? $name : "," & $name)
-	Next
-	Return $list
-EndFunc   ;==>_ListAvailableLanguageNames
-
-; Gets the display name for a language code
-; @param $code - Language code (e.g., "en", "es")
-; @return String - Display name or the code itself if not found
-Func _GetLanguageDisplayName($code)
-	If $g_LangCodeToName.Exists($code) Then Return $g_LangCodeToName.Item($code)
-	Return $code
-EndFunc   ;==>_GetLanguageDisplayName
 
 ; Initializes day name to number mappings using translations
 ; Maps localized day names (DAY_1 through DAY_7) to numbers 1-7
@@ -2384,7 +2323,6 @@ Func CheckMeetingWindow($meetingTime)
 EndFunc   ;==>CheckMeetingWindow
 
 ; Load translations and configuration
-_LoadTranslations()
 LoadMeetingConfig()
 _InitDayLabelMaps()
 
