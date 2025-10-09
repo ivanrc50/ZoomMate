@@ -44,22 +44,21 @@ jobs:
         if (Test-Path "i18n") {
           $iniFiles = Get-ChildItem -Path "i18n" -Name "*.ini" -Recurse
           foreach ($file in $iniFiles) {
-            $fileParams += " /file \"i18n\$file\""
+            $fileParams += " /file ""i18n\$file"""
           }
         }
         
         # Check if icon file exists
         if (Test-Path $iconPath) {
           Write-Host "Using icon: $iconPath"
-          $compileCmd = "$autoItPath /in \"ZoomMate.au3\" /out \"$buildDir\ZoomMate.exe\" /icon $iconPath$fileParams"
+          $compileCmd = "& ""$autoItPath"" /in ""ZoomMate.au3"" /out ""$buildDir\ZoomMate.exe"" /icon ""$iconPath""$fileParams"
         } else {
           Write-Host "Icon file not found, compiling without icon"
-          $compileCmd = "$autoItPath /in \"ZoomMate.au3\" /out \"$buildDir\ZoomMate.exe\"$fileParams"
+          $compileCmd = "& ""$autoItPath"" /in ""ZoomMate.au3"" /out ""$buildDir\ZoomMate.exe""$fileParams"
         }
         
         Write-Host "Compilation command: $compileCmd"
         Invoke-Expression $compileCmd
-
     - name: Verify compilation
       run: |
         if (Test-Path "build/ZoomMate.exe") {
