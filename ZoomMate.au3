@@ -68,6 +68,11 @@ Global $g_TooltipGUI = 0                       ; Handle for custom image tooltip
 Global $g_InfoIconData = ObjCreate("Scripting.Dictionary")  ; Maps info icon IDs to image paths
 Global $g_ElementNamesGUI = 0                      ; Handle for element names display GUI
 Global $g_ElementNamesEdit = 0                     ; Handle for element names edit control
+Global $g_ElementNamesSelectionGUI = 0             ; Handle for element names selection GUI
+Global $g_ElementNamesSelectionList = 0            ; Handle for element names selection list
+Global $g_ElementNamesSelectionResult = ""         ; Selected element name result
+Global $g_ElementNamesSelectionCallback = ""       ; Callback function for selection
+Global $g_ActiveFieldForLookup = 0                 ; Currently active field for lookup operations
 
 ; Day mapping containers for internationalization
 Global $g_DayLabelToNum = ObjCreate("Scripting.Dictionary")    ; Day name -> number (1-7)
@@ -103,8 +108,22 @@ Func GetUserSetting($key)
 EndFunc   ;==>GetUserSetting
 
 ; ================================================================================================
-; INTERNATIONALIZATION (I18N) FUNCTIONS
+; UNICODE STRING HANDLING FUNCTIONS (Simplified)
 ; ================================================================================================
+
+; Converts a Unicode string to UTF-8 bytes for INI file storage
+; @param $sText - Unicode string to convert
+; @return String - UTF-8 encoded string
+Func _StringToUTF8($sText)
+	Return BinaryToString(StringToBinary($sText, 4), 1)
+EndFunc   ;==>_StringToUTF8
+
+; Converts UTF-8 bytes from INI file back to Unicode string
+; @param $sUTF8 - UTF-8 encoded string from INI file
+; @return String - Unicode string
+Func _UTF8ToString($sUTF8)
+	Return BinaryToString(StringToBinary($sUTF8, 1), 4)
+EndFunc   ;==>_UTF8ToString
 
 ; Translation lookup function with placeholder support
 ; @param $key - Translation key to look up
@@ -117,9 +136,9 @@ Func t($key, $p0 = Default, $p1 = Default, $p2 = Default)
 		If $oDict.Exists($key) Then
 			Local $s = $oDict.Item($key)
 			; Replace placeholders if provided
-			If $p0 <> Default Then $s = StringReplace($s, "{0}", $p0)
-			If $p1 <> Default Then $s = StringReplace($s, "{1}", $p1)
-			If $p2 <> Default Then $s = StringReplace($s, "{2}", $p2)
+			If $p0 <> Default Then $s = StringReplace($s, "{0}", $p0, 0, $STR_CASESENSE)
+			If $p1 <> Default Then $s = StringReplace($s, "{1}", $p1, 0, $STR_CASESENSE)
+			If $p2 <> Default Then $s = StringReplace($s, "{2}", $p2, 0, $STR_CASESENSE)
 			Return $s
 		EndIf
 	EndIf
@@ -129,9 +148,9 @@ Func t($key, $p0 = Default, $p1 = Default, $p2 = Default)
 		Local $oEn = $g_Languages.Item("en")
 		If $oEn.Exists($key) Then
 			Local $s2 = $oEn.Item($key)
-			If $p0 <> Default Then $s2 = StringReplace($s2, "{0}", $p0)
-			If $p1 <> Default Then $s2 = StringReplace($s2, "{1}", $p1)
-			If $p2 <> Default Then $s2 = StringReplace($s2, "{2}", $p2)
+			If $p0 <> Default Then $s2 = StringReplace($s2, "{0}", $p0, 0, $STR_CASESENSE)
+			If $p1 <> Default Then $s2 = StringReplace($s2, "{1}", $p1, 0, $STR_CASESENSE)
+			If $p2 <> Default Then $s2 = StringReplace($s2, "{2}", $p2, 0, $STR_CASESENSE)
 			Return $s2
 		EndIf
 	EndIf
@@ -162,7 +181,10 @@ Func _LoadTranslations()
 		; Build translation dictionary for this language
 		Local $dict = ObjCreate("Scripting.Dictionary")
 		For $i = 1 To $a[0][0]
-			$dict.Add($a[$i][0], $a[$i][1])
+			; Apply UTF-8 to Unicode conversion for translation values
+			Local $sKey = $a[$i][0]
+			Local $sValue = _StringToUTF8($a[$i][1])
+			$dict.Add($sKey, $sValue)
 		Next
 
 		; Store language dictionary
@@ -256,31 +278,33 @@ Func LoadMeetingConfig()
 	$g_UserSettings.RemoveAll()
 
 	; Load all required settings from INI file
-	$g_UserSettings.Add("MeetingID", IniRead($CONFIG_FILE, "ZoomSettings", "MeetingID", ""))
-	$g_UserSettings.Add("MidweekDay", IniRead($CONFIG_FILE, "Meetings", "MidweekDay", ""))
-	$g_UserSettings.Add("MidweekTime", IniRead($CONFIG_FILE, "Meetings", "MidweekTime", ""))
-	$g_UserSettings.Add("WeekendDay", IniRead($CONFIG_FILE, "Meetings", "WeekendDay", ""))
-	$g_UserSettings.Add("WeekendTime", IniRead($CONFIG_FILE, "Meetings", "WeekendTime", ""))
-	$g_UserSettings.Add("HostToolsValue", IniRead($CONFIG_FILE, "ZoomStrings", "HostToolsValue", ""))
-	$g_UserSettings.Add("ParticipantValue", IniRead($CONFIG_FILE, "ZoomStrings", "ParticipantValue", ""))
-	$g_UserSettings.Add("MuteAllValue", IniRead($CONFIG_FILE, "ZoomStrings", "MuteAllValue", ""))
-	$g_UserSettings.Add("MoreMeetingControlsValue", IniRead($CONFIG_FILE, "ZoomStrings", "MoreMeetingControlsValue", ""))
-	$g_UserSettings.Add("YesValue", IniRead($CONFIG_FILE, "ZoomStrings", "YesValue", ""))
-	$g_UserSettings.Add("UncheckedValue", IniRead($CONFIG_FILE, "ZoomStrings", "UncheckedValue", ""))
-	$g_UserSettings.Add("CurrentlyUnmutedValue", IniRead($CONFIG_FILE, "ZoomStrings", "CurrentlyUnmutedValue", ""))
-	$g_UserSettings.Add("UnmuteAudioValue", IniRead($CONFIG_FILE, "ZoomStrings", "UnmuteAudioValue", ""))
-	$g_UserSettings.Add("StopVideoValue", IniRead($CONFIG_FILE, "ZoomStrings", "StopVideoValue", ""))
-	$g_UserSettings.Add("StartVideoValue", IniRead($CONFIG_FILE, "ZoomStrings", "StartVideoValue", ""))
-	$g_UserSettings.Add("KeyboardShortcut", IniRead($CONFIG_FILE, "General", "KeyboardShortcut", ""))
+	$g_UserSettings.Add("MeetingID", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomSettings", "MeetingID", "")))
+	$g_UserSettings.Add("MidweekDay", _UTF8ToString(IniRead($CONFIG_FILE, "Meetings", "MidweekDay", "")))
+	$g_UserSettings.Add("MidweekTime", _UTF8ToString(IniRead($CONFIG_FILE, "Meetings", "MidweekTime", "")))
+	$g_UserSettings.Add("WeekendDay", _UTF8ToString(IniRead($CONFIG_FILE, "Meetings", "WeekendDay", "")))
+	$g_UserSettings.Add("WeekendTime", _UTF8ToString(IniRead($CONFIG_FILE, "Meetings", "WeekendTime", "")))
+	$g_UserSettings.Add("HostToolsValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "HostToolsValue", "")))
+	$g_UserSettings.Add("ParticipantValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "ParticipantValue", "")))
+	$g_UserSettings.Add("MuteAllValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "MuteAllValue", "")))
+	$g_UserSettings.Add("MoreMeetingControlsValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "MoreMeetingControlsValue", "")))
+	$g_UserSettings.Add("YesValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "YesValue", "")))
+	$g_UserSettings.Add("UncheckedValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "UncheckedValue", "")))
+	$g_UserSettings.Add("CurrentlyUnmutedValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "CurrentlyUnmutedValue", "")))
+	$g_UserSettings.Add("UnmuteAudioValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "UnmuteAudioValue", "")))
+	$g_UserSettings.Add("StopVideoValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "StopVideoValue", "")))
+	$g_UserSettings.Add("StartVideoValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "StartVideoValue", "")))
+	$g_UserSettings.Add("ZoomSecurityUnmuteValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "ZoomSecurityUnmuteValue", "")))
+	$g_UserSettings.Add("ZoomSecurityShareScreenValue", _UTF8ToString(IniRead($CONFIG_FILE, "ZoomStrings", "ZoomSecurityShareScreenValue", "")))
+	$g_UserSettings.Add("KeyboardShortcut", _UTF8ToString(IniRead($CONFIG_FILE, "General", "KeyboardShortcut", "")))
 
 	; Window snapping preference (Disabled|Left|Right)
-	$g_UserSettings.Add("SnapZoomSide", IniRead($CONFIG_FILE, "General", "SnapZoomSide", "Disabled"))
+	$g_UserSettings.Add("SnapZoomSide", _UTF8ToString(IniRead($CONFIG_FILE, "General", "SnapZoomSide", "Disabled")))
 
 	; Load language setting
 	Local $lang = IniRead($CONFIG_FILE, "General", "Language", "")
 	If $lang = "" Then
 		$lang = "en"
-		IniWrite($CONFIG_FILE, "General", "Language", $lang)
+		IniWrite($CONFIG_FILE, "General", "Language", _StringToUTF8($lang))
 	EndIf
 	$g_UserSettings.Add("Language", $lang)
 	$g_CurrentLang = $lang
@@ -292,7 +316,7 @@ Func LoadMeetingConfig()
 	EndIf
 
 	; Check if all required settings are configured
-	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Or GetUserSetting("MoreMeetingControlsValue") = "" Or GetUserSetting("UncheckedValue") = "" Or GetUserSetting("CurrentlyUnmutedValue") = "" Or GetUserSetting("UnmuteAudioValue") = "" Or GetUserSetting("StopVideoValue") = "" Or GetUserSetting("StartVideoValue") = "" Then
+	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Or GetUserSetting("MoreMeetingControlsValue") = "" Or GetUserSetting("UncheckedValue") = "" Or GetUserSetting("CurrentlyUnmutedValue") = "" Or GetUserSetting("UnmuteAudioValue") = "" Or GetUserSetting("StopVideoValue") = "" Or GetUserSetting("StartVideoValue") = "" Or GetUserSetting("ZoomSecurityUnmuteValue") = "" Or GetUserSetting("ZoomSecurityShareScreenValue") = "" Then
 		; Open configuration GUI if any settings are missing
 		ShowConfigGUI()
 		While $g_ConfigGUI
@@ -428,25 +452,29 @@ Func ShowConfigGUI()
 	$currentY += 25
 
 	; Zoom UI element text values (for internationalization support)
-	_AddTextInputFieldWithTooltip("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, $currentY, 300, $currentY, 200, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, $currentY, 300, $currentY, 200, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("MoreMeetingControlsValue", t("LABEL_MORE_MEETING_CONTROLS"), 10, $currentY, 300, $currentY, 200, "LABEL_MORE_MEETING_CONTROLS_EXPLAIN", "more_meeting_controls.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("MoreMeetingControlsValue", t("LABEL_MORE_MEETING_CONTROLS"), 10, $currentY, 300, $currentY, 200, "LABEL_MORE_MEETING_CONTROLS_EXPLAIN", "more_meeting_controls.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, $currentY, 300, $currentY, 200, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("ParticipantValue", t("LABEL_PARTICIPANT"), 10, $currentY, 300, $currentY, 200, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, $currentY, 300, $currentY, 200, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("MuteAllValue", t("LABEL_MUTE_ALL"), 10, $currentY, 300, $currentY, 200, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, $currentY, 300, $currentY, 200, "LABEL_YES_EXPLAIN", "yes.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("YesValue", t("LABEL_YES"), 10, $currentY, 300, $currentY, 200, "LABEL_YES_EXPLAIN", "yes.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNCHECKED_VALUE_EXPLAIN", "unchecked.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNCHECKED_VALUE_EXPLAIN", "unchecked.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "currently_unmuted.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "currently_unmuted.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "unmute_audio.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "unmute_audio.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "stop_video.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "stop_video.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltip("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_START_VIDEO_VALUE_EXPLAIN", "start_video.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_START_VIDEO_VALUE_EXPLAIN", "start_video.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltipAndLookup("ZoomSecurityUnmuteValue", t("LABEL_ZOOM_SECURITY_UNMUTE"), 10, $currentY, 300, $currentY, 200, "LABEL_ZOOM_SECURITY_UNMUTE_EXPLAIN", "security_unmute.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltipAndLookup("ZoomSecurityShareScreenValue", t("LABEL_ZOOM_SECURITY_SHARE_SCREEN"), 10, $currentY, 300, $currentY, 200, "LABEL_ZOOM_SECURITY_SHARE_SCREEN_EXPLAIN", "security_share_screen.jpg")
 	$currentY += 40
 
 	; Add separator line
@@ -491,8 +519,7 @@ Func ShowConfigGUI()
 
 	; Action buttons (adjusted for wider GUI)
 	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 10, $currentY, 100, 30)
-	Local $idGetElementsBtn = GUICtrlCreateButton("Get Element Names", 120, $currentY, 150, 30)
-	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 470, $currentY, 100, 30)
+	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 120, $currentY, 100, 30)
 		$currentY += 30
 
 
@@ -502,7 +529,6 @@ Func ShowConfigGUI()
 
 	; Set button event handlers
 	GUICtrlSetOnEvent($idSaveBtn, "SaveConfigGUI")
-	GUICtrlSetOnEvent($idGetElementsBtn, "GetElementNames")
 	GUICtrlSetOnEvent($idQuitBtn, "QuitApp")
 
 	; ================================================================================================
@@ -662,6 +688,146 @@ Func _AddTextInputFieldWithTooltip($key, $label, $xLabel, $yLabel, $xInput, $yIn
 	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
 	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
 EndFunc   ;==>_AddTextInputFieldWithTooltip
+
+; Helper function to add text input field with label, info icon, tooltip, and lookup button
+; @param $key - Settings key name
+; @param $label - Display label text
+; @param $xLabel,$yLabel - Label position
+; @param $xInput,$yInput - Input position
+; @param $wInput - Input width
+; @param $explainKey - Translation key for explanation text
+; @param $imageName - Image filename for tooltip
+Func _AddTextInputFieldWithTooltipAndLookup($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput, $explainKey, $imageName)
+	GUICtrlCreateLabel($label, $xLabel, $yLabel, 200, 20)
+
+	; Create info icon label (using Unicode info symbol)
+	Local $idInfoIcon = GUICtrlCreateLabel("ℹ️", $xLabel + 205, $yLabel, 15, 20)
+	GUICtrlSetColor($idInfoIcon, 0x0066CC) ; Blue color
+	GUICtrlSetFont($idInfoIcon, 10, 700) ; Bold
+	GUICtrlSetCursor($idInfoIcon, 0) ; Hand cursor
+
+	; Build tooltip text with explanation and image reference
+	Local $tooltipText = t($explainKey)
+	Local $imagePath = @ScriptDir & "\images\" & $imageName
+
+	; Check if image exists, if not use placeholder path
+	If Not FileExists($imagePath) Then
+		$imagePath = @ScriptDir & "\images\placeholder.jpg"
+	EndIf
+
+	; Set standard tooltip with explanation text only
+	GUICtrlSetTip($idInfoIcon, $tooltipText)
+
+	; Store image path for custom tooltip display on click
+	If Not $g_InfoIconData.Exists($idInfoIcon) Then
+		$g_InfoIconData.Add($idInfoIcon, $imagePath)
+	EndIf
+
+	; Set click event to show image tooltip
+	GUICtrlSetOnEvent($idInfoIcon, "_ShowImageTooltip")
+
+	; Create text input field (slightly smaller width to make room for lookup button)
+	Local $idInput = GUICtrlCreateInput(GetUserSetting($key), $xInput, $yInput, $wInput - 35, 20)
+	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
+	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
+	GUICtrlSetOnEvent($idInput, "_OnFieldFocus") ; Track when field gets focus
+
+	; Create lookup button with magnifying glass icon
+	Local $idLookupBtn = GUICtrlCreateButton("🔍", $xInput + $wInput - 30, $yInput, 25, 20)
+	GUICtrlSetFont($idLookupBtn, 8, 400) ; Smaller font for icon
+	GUICtrlSetTip($idLookupBtn, "Lookup element names from Zoom")
+	GUICtrlSetOnEvent($idLookupBtn, "_OnLookupButtonClick")
+
+	; Store the relationship between lookup button and input field
+	If Not $g_InfoIconData.Exists($idLookupBtn) Then
+		$g_InfoIconData.Add($idLookupBtn, $idInput)
+	EndIf
+EndFunc   ;==>_AddTextInputFieldWithTooltipAndLookup
+
+; Handler for when an input field gets focus
+Func _OnFieldFocus()
+	$g_ActiveFieldForLookup = @GUI_CtrlId
+	Debug("Field focused: " & @GUI_CtrlId, "DEBUG")
+EndFunc   ;==>_OnFieldFocus
+
+; Handler for lookup button click
+Func _OnLookupButtonClick()
+	; Get the control ID of the button that was clicked
+	Local $idButton = @GUI_CtrlId
+
+	; Get the corresponding input field from our stored mapping
+	Local $idInputField = 0
+	If $g_InfoIconData.Exists($idButton) Then
+		$idInputField = $g_InfoIconData.Item($idButton)
+		$g_ActiveFieldForLookup = $idInputField ; Set this as the active field
+	EndIf
+
+	; Collect element names and show the selection GUI
+	GetElementNamesForField()
+EndFunc   ;==>_OnLookupButtonClick
+
+; Collects element names and shows selection GUI for field population
+Func GetElementNamesForField()
+	Debug("Lookup button clicked - collecting element names for field", "DEBUG")
+
+	; Check if Zoom meeting is in progress
+	If Not FocusZoomWindow() Then
+		; Meeting not in progress - show message
+		MsgBox($MB_OK + $MB_ICONINFORMATION, "ZoomMate", "No active Zoom meeting found. Please ensure Zoom is open and a meeting is in progress.")
+		Debug("No active Zoom meeting found", "WARN")
+		Return
+	EndIf
+
+	; Meeting is in progress - collect element names
+	Debug("Active Zoom meeting found, collecting element names...", "DEBUG")
+
+	; Get Zoom window object
+	_GetZoomWindow()
+
+	If Not IsObj($oZoomWindow) Then
+		MsgBox($MB_OK + $MB_ICONERROR, "ZoomMate", "Failed to get Zoom window object.")
+		Debug("Failed to get Zoom window object", "DEBUG")
+		Return
+	EndIf
+
+	; Open Host Tools menu to collect names from it too
+	Local $oHostMenu = _OpenHostTools()
+	If Not IsObj($oHostMenu) Then
+		Debug("Failed to open Host Tools menu, collecting names from Zoom window only", "WARN")
+	EndIf
+
+	; Collect element names from both windows
+	Local $aNames = GetElementNamesFromWindows($oZoomWindow, $oHostMenu)
+
+	If UBound($aNames) = 0 Then
+		MsgBox($MB_OK + $MB_ICONWARNING, "ZoomMate", "No element names found. This might indicate an issue with the UIAutomation interface.")
+		Debug("No element names collected", "WARN")
+		Return
+	EndIf
+
+	; Show selection GUI with callback to populate the active field
+	ShowElementNamesSelectionGUI($aNames, "OnFieldElementSelected")
+
+	; Close Host Tools menu if it was opened
+	If IsObj($oHostMenu) Then
+		_CloseHostTools()
+	EndIf
+
+	Debug("Element names collection completed for field lookup", "SUCCESS")
+EndFunc   ;==>GetElementNamesForField
+
+; Callback function when user selects an element name for a field
+Func OnFieldElementSelected($selectedName)
+	; Populate the currently active field with the selected name
+	If $g_ActiveFieldForLookup <> 0 Then
+		GUICtrlSetData($g_ActiveFieldForLookup, $selectedName)
+		; Trigger validation check
+		CheckConfigFields()
+		Debug("Populated field " & $g_ActiveFieldForLookup & " with: " & $selectedName, "DEBUG")
+	Else
+		Debug("No active field to populate", "WARN")
+	EndIf
+EndFunc   ;==>OnFieldElementSelected
 
 ; Helper function to add day selection dropdown with label
 ; @param $key - Settings key name
@@ -869,7 +1035,7 @@ Func SaveConfigGUI()
 		EndIf
 
 		$g_UserSettings.Add($sKey, $val)
-		IniWrite($CONFIG_FILE, _GetIniSectionForKey($sKey), $sKey, GetUserSetting($sKey))
+		IniWrite($CONFIG_FILE, _GetIniSectionForKey($sKey), $sKey, _StringToUTF8($val))
 	Next
 
 	; Save language setting
@@ -877,11 +1043,11 @@ Func SaveConfigGUI()
 	Local $selLang = "en"
 	If $g_LangNameToCode.Exists($selDisplay) Then $selLang = $g_LangNameToCode.Item($selDisplay)
 	$g_UserSettings.Add("Language", $selLang)
-	IniWrite($CONFIG_FILE, "General", "Language", GetUserSetting("Language"))
+	IniWrite($CONFIG_FILE, "General", "Language", _StringToUTF8($selLang))
 	$g_CurrentLang = $selLang
 
 	; Save keyboard shortcut setting
-	IniWrite($CONFIG_FILE, "General", "KeyboardShortcut", GetUserSetting("KeyboardShortcut"))
+	IniWrite($CONFIG_FILE, "General", "KeyboardShortcut", _StringToUTF8(GetUserSetting("KeyboardShortcut")))
 	$g_KeyboardShortcut = GetUserSetting("KeyboardShortcut")
 
 	; Register/unregister hotkey based on new setting
@@ -1926,15 +2092,28 @@ Func GetSecuritySettingsState($aSettings)
 			; Read the setting's label to determine if it's checked
 			Local $sLabel = ""
 			$oSetting.GetCurrentPropertyValue($UIA_NamePropertyId, $sLabel)
-			Local $sLabelLower = StringLower($sLabel)
 
-			; Setting is enabled if NOT marked as "unchecked"
-			$bEnabled = Not StringRegExp($sLabelLower, "\b" & StringLower(GetUserSetting("UncheckedValue")) & "\b")
+			Debug("Element name: '" & $sLabel & "'", "DEBUG")
+
+			; Setting is enabled if label does NOT contain unchecked indicator
+			Local $uncheckedValue = GetUserSetting("UncheckedValue")
+			Local $sLabelLower = StringLower($sLabel)
+			Local $uncheckedLower = StringLower($uncheckedValue)
+
+			Debug("Raw label: '" & $sLabel & "'", "DEBUG")
+			Debug("Label length: " & StringLen($sLabel), "DEBUG")
+			Debug("Unchecked value: '" & $uncheckedValue & "'", "DEBUG")
+			Debug("Unchecked length: " & StringLen($uncheckedValue), "DEBUG")
+			Debug("Label lower: '" & $sLabelLower & "'", "DEBUG")
+			Debug("Unchecked lower: '" & $uncheckedLower & "'", "DEBUG")
+
+			; Check if unchecked value appears anywhere in the label (not just word boundaries)
+			$bEnabled = (StringInStr($sLabelLower, $uncheckedLower) = 0)
+
+			Debug("StringInStr result: " & StringInStr($sLabelLower, $uncheckedLower), "DEBUG")
 		Else
 			Debug(t("ERROR_SETTING_NOT_FOUND") & ": '" & $sSetting & "'", "ERROR")
 		EndIf
-
-		Debug("Setting '" & $sSetting & "' is currently " & ($bEnabled ? "ENABLED" : "DISABLED"), "DEBUG")
 		$oDict.Add($sSetting, $bEnabled)
 	Next
 
@@ -1955,10 +2134,26 @@ Func SetSecuritySetting($sSetting, $bDesired)
 	; Check current state
 	Local $sLabel
 	$oSetting.GetCurrentPropertyValue($UIA_NamePropertyId, $sLabel)
-	Local $sLabelLower = StringLower($sLabel)
-	Local $bEnabled = Not StringRegExp($sLabelLower, "\b" & StringLower(GetUserSetting("UncheckedValue")) & "\b")
 
-	Debug("Setting '" & $sLabel & "' | Current: " & $bEnabled & " | Desired: " & $bDesired, "DEBUG")
+	Debug("Element name: '" & $sLabel & "'", "DEBUG")
+
+	; Setting is enabled if label does NOT contain unchecked indicator
+	Local $uncheckedValue = GetUserSetting("UncheckedValue")
+	Local $sLabelLower = StringLower($sLabel)
+	Local $uncheckedLower = StringLower($uncheckedValue)
+
+	Debug("Raw label: '" & $sLabel & "'", "DEBUG")
+	Debug("Label length: " & StringLen($sLabel), "DEBUG")
+	Debug("Unchecked value: '" & $uncheckedValue & "'", "DEBUG")
+	Debug("Unchecked length: " & StringLen($uncheckedValue), "DEBUG")
+	Debug("Label lower: '" & $sLabelLower & "'", "DEBUG")
+	Debug("Unchecked lower: '" & $uncheckedLower & "'", "DEBUG")
+
+	; Check if unchecked value appears anywhere in the label (not just word boundaries)
+	Local $bEnabled = (StringInStr($sLabelLower, $uncheckedLower) = 0)
+
+	Debug("StringInStr result: " & StringInStr($sLabelLower, $uncheckedLower), "DEBUG")
+	Debug("Setting '" & $sLabel & "' | Current: " & ($bEnabled ? "True" : "False") & " | Desired: " & $bDesired, "DEBUG")
 
 	; Only click if state needs to change
 	If $bEnabled <> $bDesired Then
@@ -2097,8 +2292,8 @@ Func _SetPreAndPostMeetingSettings()
 	Debug(t("INFO_CONFIG_BEFORE_AFTER_START"), "INFO")
 	ShowOverlayMessage('PLEASE_WAIT')
 	FocusZoomWindow()               ; Ensure Zoom window is focused
-	SetSecuritySetting("Unmute", True)          ; Allow participants to unmute
-	SetSecuritySetting("Share screen", False)   ; Prevent screen sharing
+	SetSecuritySetting(GetUserSetting("ZoomSecurityUnmuteValue"), True)          ; Allow participants to unmute
+	SetSecuritySetting(GetUserSetting("ZoomSecurityShareScreenValue"), False)   ; Prevent screen sharing
 	ToggleFeed("Audio", False)                  ; Turn off host audio
 	ToggleFeed("Video", False)                  ; Turn off host video
 	; TODO: Unmute All function
@@ -2115,8 +2310,8 @@ Func _SetDuringMeetingSettings()
 	Debug(t("INFO_MEETING_STARTING_SOON_CONFIG"), "INFO")
 	ShowOverlayMessage('PLEASE_WAIT')
 	FocusZoomWindow()                          ; Ensure Zoom window is focused
-	SetSecuritySetting("Unmute", False)         ; Prevent participant self-unmute
-	SetSecuritySetting("Share screen", False)   ; Prevent screen sharing
+	SetSecuritySetting(GetUserSetting("ZoomSecurityUnmuteValue"), False)         ; Prevent participant self-unmute
+	SetSecuritySetting(GetUserSetting("ZoomSecurityShareScreenValue"), False)   ; Prevent screen sharing
 	MuteAll()                                   ; Mute all participants
 	ToggleFeed("Audio", True)                   ; Turn on host audio
 	ToggleFeed("Video", True)                   ; Turn on host video
@@ -2310,13 +2505,104 @@ Func _CollectElementNames($oParent, $aControlTypes, ByRef $aNames)
 	Next
 EndFunc   ;==>_CollectElementNames
 
-; ================================================================================================
-; ELEMENT NAMES DISPLAY GUI
-; ================================================================================================
+; Shows a selectable list of collected element names for user to choose from
+; @param $aNames - Array of element names to display
+; @param $callbackFunc - Function to call when user makes a selection
+Func ShowElementNamesSelectionGUI($aNames, $callbackFunc)
+	; Close any existing selection GUI
+	CloseElementNamesSelectionGUI()
 
-; Global variables for element names display GUI
-Global $g_ElementNamesGUI = 0
-Global $g_ElementNamesEdit = 0
+	; Store callback function for when user makes selection
+	$g_ElementNamesSelectionCallback = $callbackFunc
+
+	Local $iW = 500
+	Local $iH = 400
+	Local $iX = (@DesktopWidth - $iW) / 2
+	Local $iY = (@DesktopHeight - $iH) / 2
+
+	; Create moveable and closeable GUI
+	$g_ElementNamesSelectionGUI = GUICreate("Select Element Name", $iW, $iH, $iX, $iY, $WS_CAPTION + $WS_SYSMENU + $WS_MINIMIZEBOX, $WS_EX_TOPMOST)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "CloseElementNamesSelectionGUI")
+
+	; Create list control for displaying element names
+	Local $idList = GUICtrlCreateList("", 10, 10, $iW - 20, $iH - 80, $WS_VSCROLL)
+	GUICtrlSetFont($idList, 9, 400, 0, "Courier New") ; Monospace font for better readability
+
+	; Add element names to the list
+	For $i = 0 To UBound($aNames) - 1
+		GUICtrlSetData($idList, $aNames[$i])
+	Next
+
+	$g_ElementNamesSelectionList = $idList
+
+	; Create selection button
+	Local $idSelectBtn = GUICtrlCreateButton("Select", ($iW - 160) / 2, $iH - 60, 70, 25)
+	GUICtrlSetOnEvent($idSelectBtn, "OnElementNameSelected")
+
+	; Create cancel button
+	Local $idCancelBtn = GUICtrlCreateButton("Cancel", ($iW - 160) / 2 + 90, $iH - 60, 70, 25)
+	GUICtrlSetOnEvent($idCancelBtn, "CloseElementNamesSelectionGUI")
+
+	; Make GUI moveable by dragging the title bar
+	GUISetOnEvent($GUI_EVENT_PRIMARYDOWN, "_StartDragElementNamesSelectionGUI")
+
+	GUISetState(@SW_SHOW, $g_ElementNamesSelectionGUI)
+
+	Debug("Element names selection GUI displayed with " & UBound($aNames) & " names", "DEBUG")
+EndFunc   ;==>ShowElementNamesSelectionGUI
+
+; Handles selection of an element name from the list
+Func OnElementNameSelected()
+	Local $selectedIndex = GUICtrlRead($g_ElementNamesSelectionList)
+	If $selectedIndex = "" Or $selectedIndex = -1 Then Return
+
+	; Get the selected text from the list
+	Local $selectedText = GUICtrlRead($g_ElementNamesSelectionList)
+
+	; Store the result
+	$g_ElementNamesSelectionResult = $selectedText
+
+	; Call the callback function if it exists
+	If $g_ElementNamesSelectionCallback <> "" Then
+		Call($g_ElementNamesSelectionCallback, $selectedText)
+	EndIf
+
+	; Close the selection GUI
+	CloseElementNamesSelectionGUI()
+
+	Debug("Element name selected: " & $selectedText, "DEBUG")
+EndFunc   ;==>OnElementNameSelected
+
+; Closes the element names selection GUI
+Func CloseElementNamesSelectionGUI()
+	If $g_ElementNamesSelectionGUI <> 0 Then
+		GUIDelete($g_ElementNamesSelectionGUI)
+		$g_ElementNamesSelectionGUI = 0
+		$g_ElementNamesSelectionList = 0
+		$g_ElementNamesSelectionResult = ""
+		$g_ElementNamesSelectionCallback = ""
+		Debug("Element names selection GUI closed", "DEBUG")
+	EndIf
+EndFunc   ;==>CloseElementNamesSelectionGUI
+
+; Handles dragging of the element names selection GUI
+Func _StartDragElementNamesSelectionGUI()
+	If $g_ElementNamesSelectionGUI = 0 Then Return
+
+	; Get mouse position relative to GUI
+	Local $mousePos = MouseGetPos()
+	Local $guiPos = WinGetPos($g_ElementNamesSelectionGUI)
+
+	Local $offsetX = $mousePos[0] - $guiPos[0]
+	Local $offsetY = $mousePos[1] - $guiPos[1]
+
+	; Drag while mouse is down
+	While _IsMouseDown()
+		$mousePos = MouseGetPos()
+		WinMove($g_ElementNamesSelectionGUI, "", $mousePos[0] - $offsetX, $mousePos[1] - $offsetY)
+		Sleep(10)
+	WEnd
+EndFunc   ;==>_StartDragElementNamesSelectionGUI
 
 ; Shows a closeable and moveable textarea with collected element names
 ; @param $aNames - Array of element names to display
