@@ -428,9 +428,15 @@ Func ShowConfigGUI()
 	$currentY += 25
 
 	; Language selection dropdown
-	GUICtrlCreateLabel("Language:", 10, $currentY, 120, 20)
+	GUICtrlCreateLabel(t("LABEL_LANGUAGE"), 10, $currentY, 120, 20)
 	$idLanguagePicker = GUICtrlCreateCombo("", 140, $currentY, 200, 20)
-	GUICtrlSetData($idLanguagePicker, _ListAvailableLanguageNames(), _GetLanguageDisplayName(GetUserSetting("Language")))
+	; Ensure translations are initialized before getting language list
+	If $TRANSLATIONS.Count = 0 Then _InitializeTranslations()
+	Local $langList = _ListAvailableLanguageNames()
+	Local $currentLang = GetUserSetting("Language")
+	If $currentLang = "" Then $currentLang = "en"
+	Local $currentDisplay = _GetLanguageDisplayName($currentLang)
+	GUICtrlSetData($idLanguagePicker, $langList, $currentDisplay)
 	$currentY += 30
 
 	; Snap Zoom to side (Disabled|Left|Right)
@@ -979,8 +985,8 @@ Func SaveConfigGUI()
 
 	; Save language setting
 	Local $selDisplay = GUICtrlRead($idLanguagePicker)
-	Local $selLang = "en"
-	If $g_LangNameToCode.Exists($selDisplay) Then $selLang = $g_LangNameToCode.Item($selDisplay)
+	Local $selLang = _GetLanguageCodeFromDisplayName($selDisplay)
+	If $selLang = "" Then $selLang = "en"  ; Fallback to English if not found
 	$g_UserSettings.Add("Language", $selLang)
 	IniWrite($CONFIG_FILE, "General", "Language", _StringToUTF8($selLang))
 	$g_CurrentLang = $selLang

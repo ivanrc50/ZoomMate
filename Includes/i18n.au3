@@ -39,6 +39,7 @@ Func _InitializeTranslations()
     $en.Add("LABEL_MIDWEEK_TIME", "Midweek Time (HH:MM)")
     $en.Add("LABEL_WEEKEND_DAY", "Weekend Day")
     $en.Add("LABEL_WEEKEND_TIME", "Weekend Time (HH:MM)")
+    $en.Add("LABEL_LANGUAGE", "Language:")
 
     ; Zoom interface labels
     $en.Add("LABEL_HOST_TOOLS", "Host tools")
@@ -126,6 +127,9 @@ EndFunc   ;==>_InitializeTranslations
 ; @param $langCode - Language code (e.g., "en", "es")
 ; @return Object - Dictionary containing translations for the specified language
 Func _GetLanguageTranslations($langCode)
+    ; Ensure translations are initialized
+    If $TRANSLATIONS.Count = 0 Then _InitializeTranslations()
+
     If $TRANSLATIONS.Exists($langCode) Then
         Return $TRANSLATIONS.Item($langCode)
     Else
@@ -138,15 +142,34 @@ EndFunc   ;==>_GetLanguageTranslations
 ; @return String - Comma-separated list of language names
 Func _ListAvailableLanguageNames()
     Local $list = ""
+    ; Ensure translations are initialized
+    If $TRANSLATIONS.Count = 0 Then _InitializeTranslations()
+
     For $langCode In $TRANSLATIONS.Keys
         Local $translations = _GetLanguageTranslations($langCode)
         If $translations.Exists("LANGNAME") Then
             Local $langName = $translations.Item("LANGNAME")
-            $list &= ($list = "" ? $langName : "," & $langName)
+            $list &= ($list = "" ? $langName : "|" & $langName)
         EndIf
     Next
     Return $list
 EndFunc   ;==>_ListAvailableLanguageNames
+
+; Gets the language code for a display name
+; @param $displayName - Display name (e.g., "English", "Español")
+; @return String - Language code or empty string if not found
+Func _GetLanguageCodeFromDisplayName($displayName)
+    ; Ensure translations are initialized
+    If $TRANSLATIONS.Count = 0 Then _InitializeTranslations()
+
+    For $langCode In $TRANSLATIONS.Keys
+        Local $translations = _GetLanguageTranslations($langCode)
+        If $translations.Exists("LANGNAME") And $translations.Item("LANGNAME") = $displayName Then
+            Return $langCode
+        EndIf
+    Next
+    Return ""  ; Not found
+EndFunc   ;==>_GetLanguageCodeFromDisplayName
 
 ; Gets the display name for a language code
 ; @param $code - Language code (e.g., "en", "es")
