@@ -292,7 +292,7 @@ Func LoadMeetingConfig()
 	EndIf
 
 	; Check if all required settings are configured
-	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Or GetUserSetting("UncheckedValue") = "" Or GetUserSetting("CurrentlyUnmutedValue") = "" Or GetUserSetting("UnmuteAudioValue") = "" Or GetUserSetting("StopVideoValue") = "" Or GetUserSetting("StartVideoValue") = "" Then
+	If GetUserSetting("MeetingID") = "" Or GetUserSetting("MidweekDay") = "" Or GetUserSetting("MidweekTime") = "" Or GetUserSetting("WeekendDay") = "" Or GetUserSetting("WeekendTime") = "" Or GetUserSetting("HostToolsValue") = "" Or GetUserSetting("ParticipantValue") = "" Or GetUserSetting("MuteAllValue") = "" Or GetUserSetting("YesValue") = "" Or GetUserSetting("MoreMeetingControlsValue") = "" Or GetUserSetting("UncheckedValue") = "" Or GetUserSetting("CurrentlyUnmutedValue") = "" Or GetUserSetting("UnmuteAudioValue") = "" Or GetUserSetting("StopVideoValue") = "" Or GetUserSetting("StartVideoValue") = "" Then
 		; Open configuration GUI if any settings are missing
 		ShowConfigGUI()
 		While $g_ConfigGUI
@@ -386,18 +386,89 @@ Func ShowConfigGUI()
 	; Initialize day mappings for current language
 	_InitDayLabelMaps()
 
-	; Create main configuration window
-	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), 320, 600)
+	; Create main configuration window with initial estimated height
+	Local $initialWidth = 640
+	Local $initialHeight = 630
+	$g_ConfigGUI = GUICreate(t("CONFIG_TITLE"), $initialWidth, $initialHeight)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "SaveConfigGUI", $g_ConfigGUI)
 
+	Local $currentY = 10
+
+	; ================================================================================================
+	; SECTION 1: MEETING INFORMATION
+	; ================================================================================================
+	_AddSectionHeader(t("SECTION_MEETING_INFO"), 10, $currentY)
+	$currentY += 25
+
+	; Meeting configuration fields
+	_AddTextInputField("MeetingID", t("LABEL_MEETING_ID"), 10, $currentY, 300, $currentY, 200)
+	$currentY += 30
+
+	; Midweek meeting settings
+	_AddDayDropdownField("MidweekDay", t("LABEL_MIDWEEK_DAY"), 10, $currentY, 300, $currentY, 200)
+	$currentY += 30
+	_AddTextInputField("MidweekTime", t("LABEL_MIDWEEK_TIME"), 10, $currentY, 300, $currentY, 200)
+	$currentY += 40
+
+	; Weekend meeting settings
+	_AddDayDropdownField("WeekendDay", t("LABEL_WEEKEND_DAY"), 10, $currentY, 300, $currentY, 200)
+	$currentY += 30
+	_AddTextInputField("WeekendTime", t("LABEL_WEEKEND_TIME"), 10, $currentY, 300, $currentY, 200)
+	$currentY += 40
+
+	; Add separator line
+	GUICtrlCreateLabel("", 10, $currentY, 620, 2)
+	GUICtrlSetBkColor(-1, 0xCCCCCC)
+	$currentY += 15
+
+	; ================================================================================================
+	; SECTION 2: ZOOM INTERFACE LABELS
+	; ================================================================================================
+	_AddSectionHeader(t("SECTION_ZOOM_LABELS"), 10, $currentY)
+	$currentY += 25
+
+	; Zoom UI element text values (for internationalization support)
+	_AddTextInputFieldWithTooltip("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, $currentY, 300, $currentY, 200, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("MoreMeetingControlsValue", t("LABEL_MORE_MEETING_CONTROLS"), 10, $currentY, 300, $currentY, 200, "LABEL_MORE_MEETING_CONTROLS_EXPLAIN", "more_meeting_controls.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, $currentY, 300, $currentY, 200, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, $currentY, 300, $currentY, 200, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, $currentY, 300, $currentY, 200, "LABEL_YES_EXPLAIN", "yes.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNCHECKED_VALUE_EXPLAIN", "unchecked.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "currently_unmuted.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "unmute_audio.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "stop_video.jpg")
+	$currentY += 30
+	_AddTextInputFieldWithTooltip("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_START_VIDEO_VALUE_EXPLAIN", "start_video.jpg")
+	$currentY += 40
+
+	; Add separator line
+	GUICtrlCreateLabel("", 10, $currentY, 620, 2)
+	GUICtrlSetBkColor(-1, 0xCCCCCC)
+	$currentY += 15
+
+	; ================================================================================================
+	; SECTION 3: GENERAL SETTINGS
+	; ================================================================================================
+	_AddSectionHeader(t("SECTION_GENERAL_SETTINGS"), 10, $currentY)
+	$currentY += 25
+
 	; Language selection dropdown
-	GUICtrlCreateLabel("Language:", 10, 160, 120, 20)
-	$idLanguagePicker = GUICtrlCreateCombo("", 140, 160, 160, 20)
+	GUICtrlCreateLabel("Language:", 10, $currentY, 120, 20)
+	$idLanguagePicker = GUICtrlCreateCombo("", 140, $currentY, 200, 20)
 	GUICtrlSetData($idLanguagePicker, _ListAvailableLanguageNames(), _GetLanguageDisplayName(GetUserSetting("Language")))
+	$currentY += 30
 
 	; Snap Zoom to side (Disabled|Left|Right)
-	GUICtrlCreateLabel(t("LABEL_SNAP_ZOOM_TO"), 10, 190, 120, 20)
-	Local $idSnapZoom = GUICtrlCreateCombo("", 140, 190, 160, 20)
+	GUICtrlCreateLabel(t("LABEL_SNAP_ZOOM_TO"), 10, $currentY, 120, 20)
+	Local $idSnapZoom = GUICtrlCreateCombo("", 140, $currentY, 200, 20)
 	Local $snapVal = GetUserSetting("SnapZoomSide")
 	Local $snapDisplay = t("SNAP_DISABLED")
 	If $snapVal = "Left" Then
@@ -408,39 +479,22 @@ Func ShowConfigGUI()
 	GUICtrlSetData($idSnapZoom, t("SNAP_DISABLED") & "|" & t("SNAP_LEFT") & "|" & t("SNAP_RIGHT"), $snapDisplay)
 	If Not $g_FieldCtrls.Exists("SnapZoomSide") Then $g_FieldCtrls.Add("SnapZoomSide", $idSnapZoom)
 	GUICtrlSetOnEvent($idSnapZoom, "CheckConfigFields")
+	$currentY += 40
 
-	; Meeting configuration fields
-	_AddTextInputField("MeetingID", t("LABEL_MEETING_ID"), 10, 10, 170, 10, 160)
+	_AddTextInputFieldWithTooltip("KeyboardShortcut", t("LABEL_KEYBOARD_SHORTCUT"), 10, $currentY, 300, $currentY, 200, "LABEL_KEYBOARD_SHORTCUT_EXPLAIN", '')
+	$currentY += 40
 
-	; Midweek meeting settings
-	_AddDayDropdownField("MidweekDay", t("LABEL_MIDWEEK_DAY"), 10, 40, 200, 40, 100)
-	_AddTextInputField("MidweekTime", t("LABEL_MIDWEEK_TIME"), 10, 70, 200, 70, 100)
-
-	; Weekend meeting settings
-	_AddDayDropdownField("WeekendDay", t("LABEL_WEEKEND_DAY"), 10, 100, 200, 100, 100)
-	_AddTextInputField("WeekendTime", t("LABEL_WEEKEND_TIME"), 10, 130, 200, 130, 100)
-
-	_AddTextInputFieldWithTooltip("KeyboardShortcut", t("LABEL_KEYBOARD_SHORTCUT"), 10, 220, 140, 220, 160, "LABEL_KEYBOARD_SHORTCUT_EXPLAIN", '')
-
-	; Zoom UI element text values (for internationalization support)
-	_AddTextInputFieldWithTooltip("HostToolsValue", t("LABEL_HOST_TOOLS"), 10, 250, 140, 250, 160, "LABEL_HOST_TOOLS_EXPLAIN", "host_tools.jpg")
-	_AddTextInputFieldWithTooltip("ParticipantValue", t("LABEL_PARTICIPANT"), 10, 280, 140, 280, 160, "LABEL_PARTICIPANT_EXPLAIN", "participant.jpg")
-	_AddTextInputFieldWithTooltip("MuteAllValue", t("LABEL_MUTE_ALL"), 10, 310, 140, 310, 160, "LABEL_MUTE_ALL_EXPLAIN", "mute_all.jpg")
-	_AddTextInputFieldWithTooltip("YesValue", t("LABEL_YES"), 10, 340, 140, 340, 160, "LABEL_YES_EXPLAIN", "yes.jpg")
-	_AddTextInputFieldWithTooltip("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, 370, 140, 370, 160, "LABEL_UNCHECKED_VALUE_EXPLAIN", "unchecked.jpg")
-	_AddTextInputFieldWithTooltip("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, 400, 140, 400, 160, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "currently_unmuted.jpg")
-	_AddTextInputFieldWithTooltip("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, 430, 140, 430, 160, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "unmute_audio.jpg")
-	_AddTextInputFieldWithTooltip("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, 460, 140, 460, 160, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "stop_video.jpg")
-	_AddTextInputFieldWithTooltip("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, 490, 140, 490, 160, "LABEL_START_VIDEO_VALUE_EXPLAIN", "start_video.jpg")
-
-	; Error display area
-	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, 520, 300, 20)
+	; Error display area (wider to match new GUI width)
+	$g_ErrorAreaLabel = GUICtrlCreateLabel("", 10, $currentY, 620, 20)
 	GUICtrlSetColor($g_ErrorAreaLabel, 0xFF0000) ; Red text for errors
+	$currentY += 30
 
-	; Action buttons
-	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 10, 550, 80, 30)
-	Local $idGetElementsBtn = GUICtrlCreateButton("Get Element Names", 100, 550, 120, 30)
-	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 230, 550, 80, 30)
+	; Action buttons (adjusted for wider GUI)
+	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 10, $currentY, 100, 30)
+	Local $idGetElementsBtn = GUICtrlCreateButton("Get Element Names", 120, $currentY, 150, 30)
+	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 470, $currentY, 100, 30)
+		$currentY += 30
+
 
 	; Set initial button states
 	GUICtrlSetState($idSaveBtn, $GUI_DISABLE)  ; Disabled until all fields valid
@@ -451,6 +505,21 @@ Func ShowConfigGUI()
 	GUICtrlSetOnEvent($idGetElementsBtn, "GetElementNames")
 	GUICtrlSetOnEvent($idQuitBtn, "QuitApp")
 
+	; ================================================================================================
+	; DYNAMIC HEIGHT CALCULATION AND GUI RESIZING
+	; ================================================================================================
+
+	; Calculate required height based on content
+	Local $buttonHeight = 30
+	Local $buttonMargin = 20
+	Local $requiredHeight = $currentY + $buttonHeight + $buttonMargin
+
+	; Resize the GUI to fit the content exactly
+	Local $aPos = WinGetPos($g_ConfigGUI)
+	If $aPos[3] <> $requiredHeight Then
+		WinMove($g_ConfigGUI, "", $aPos[0], $aPos[1], $initialWidth, $requiredHeight)
+	EndIf
+
 	; Perform initial validation check
 	CheckConfigFields()
 
@@ -460,6 +529,17 @@ Func ShowConfigGUI()
 	GUIRegisterMsg($WM_COMMAND, "_WM_COMMAND_EditChange")
 EndFunc   ;==>ShowConfigGUI
 
+; Helper function to add a section header with styling
+; @param $text - Header text to display
+; @param $x - X position
+; @param $y - Y position
+Func _AddSectionHeader($text, $x, $y)
+	Local $idLabel = GUICtrlCreateLabel($text, $x, $y, 620, 20)
+	GUICtrlSetFont($idLabel, 10, 700, Default, "Segoe UI") ; Bold, larger font
+	GUICtrlSetColor($idLabel, 0x0066CC) ; Blue color
+	GUICtrlSetBkColor($idLabel, 0xE8F4FD) ; Light blue background
+	Return $idLabel
+EndFunc   ;==>_AddSectionHeader
 ; Shows a message dialog during long operations with i18n support
 ; @param $messageType - Type of message to show ('PLEASE_WAIT' or 'POST_MEETING_HIT_KEY')
 Func ShowOverlayMessage($messageType = 'PLEASE_WAIT')
@@ -550,10 +630,10 @@ EndFunc   ;==>_AddTextInputField
 ; @param $explainKey - Translation key for explanation text
 ; @param $imageName - Image filename for tooltip
 Func _AddTextInputFieldWithTooltip($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput, $explainKey, $imageName)
-	GUICtrlCreateLabel($label, $xLabel, $yLabel, 110, 20)
+	GUICtrlCreateLabel($label, $xLabel, $yLabel, 200, 20)
 
 	; Create info icon label (using Unicode info symbol)
-	Local $idInfoIcon = GUICtrlCreateLabel("ℹ️", $xLabel + 115, $yLabel, 15, 20)
+	Local $idInfoIcon = GUICtrlCreateLabel("ℹ️", $xLabel + 205, $yLabel, 15, 20)
 	GUICtrlSetColor($idInfoIcon, 0x0066CC) ; Blue color
 	GUICtrlSetFont($idInfoIcon, 10, 700) ; Bold
 	GUICtrlSetCursor($idInfoIcon, 0) ; Hand cursor
