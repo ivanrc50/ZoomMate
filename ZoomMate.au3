@@ -164,12 +164,24 @@ EndFunc   ;==>t
 ; Initializes day name to number mappings using translations
 ; Maps localized day names (DAY_1 through DAY_7) to numbers 1-7
 Func _InitDayLabelMaps()
+	; Clear existing mappings before reinitializing
+	$g_DayLabelToNum.RemoveAll()
+	$g_DayNumToLabel.RemoveAll()
+
 	Local $i
 	For $i = 1 To 7
 		Local $key = "DAY_" & $i
 		Local $label = t($key)
 		If Not $g_DayLabelToNum.Exists($label) Then $g_DayLabelToNum.Add($label, $i)
 		If Not $g_DayNumToLabel.Exists(String($i)) Then $g_DayNumToLabel.Add(String($i), $label)
+	Next
+
+	; Debug output for verification
+	Debug("Day mappings initialized:", "DEBUG")
+	For $i = 1 To 7
+		Local $key = "DAY_" & $i
+		Local $label = t($key)
+		Debug("  " & $label & " -> " & $i, "DEBUG")
 	Next
 EndFunc   ;==>_InitDayLabelMaps
 
@@ -240,7 +252,7 @@ Func LoadMeetingConfig()
 	$g_UserSettings.Add("SnapZoomSide", _UTF8ToString(IniRead($CONFIG_FILE, "General", "SnapZoomSide", "Disabled")))
 
 	; Load language setting
-	Local $lang = IniRead($CONFIG_FILE, "General", "Language", "")
+	Local $lang = _UTF8ToString(IniRead($CONFIG_FILE, "General", "Language", ""))
 	If $lang = "" Then
 		$lang = "en"
 		IniWrite($CONFIG_FILE, "General", "Language", _StringToUTF8($lang))
@@ -796,13 +808,20 @@ Func _AddDayDropdownField($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wIn
 	; Set current selection based on saved setting
 	Local $currentNum = String(GetUserSetting($key))
 	Local $currentLabel = $currentNum
-	If $g_DayNumToLabel.Exists($currentNum) Then $currentLabel = $g_DayNumToLabel.Item($currentNum)
+	Debug("Day dropdown " & $key & ": Raw setting value = '" & $currentNum & "'", "DEBUG")
+	If $g_DayNumToLabel.Exists($currentNum) Then
+		$currentLabel = $g_DayNumToLabel.Item($currentNum)
+		Debug("Day dropdown " & $key & ": Setting selection to '" & $currentLabel & "' (day " & $currentNum & ")", "DEBUG")
+	Else
+		Debug("Day dropdown " & $key & ": Day number " & $currentNum & " not found in translation map", "WARN")
+		Debug("Day dropdown " & $key & ": Available translations: " & $g_DayNumToLabel.Count & " items", "DEBUG")
+	EndIf
 
 	Local $idCombo = GUICtrlCreateCombo("", $xInput, $yInput, $wInput, 20)
 	GUICtrlSetData($idCombo, $dayList, $currentLabel)
 	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idCombo)
 	GUICtrlSetOnEvent($idCombo, "CheckConfigFields")
-EndFunc   ;==>_AddDayDropdownField
+	EndFunc   ;==>_AddDayDropdownField
 
 ; Validates all configuration fields and updates UI accordingly
 ; Enables/disables save button, shows validation errors, and updates field styling
