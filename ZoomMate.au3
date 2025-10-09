@@ -19,9 +19,10 @@
 #include <GUIConstantsEx.au3>
 #include <WindowsStylesConstants.au3>
 #include <StaticConstants.au3>
+#include <WinAPI.au3>
+#include <EditConstants.au3>
 #include "Includes\UIA_Functions-a.au3"
 #include "Includes\CUIAutomation2.au3"
-#include <WinAPI.au3>
 
 ; ================================================================================================
 ; AUTOIT OPTIONS AND CONSTANTS
@@ -32,7 +33,6 @@ Opt("GUIOnEventMode", 1)         ; Enable GUI event mode
 Opt("TrayMenuMode", 3)           ; Custom tray menu (no default, no auto-pause)
 
 ; Windows API constants for GUI message handling
-Global Const $EN_CHANGE = 0x0300
 Global Const $MF_BYCOMMAND = 0x00000000
 
 ; ================================================================================================
@@ -66,6 +66,8 @@ Global $g_ConfigGUI = 0                        ; Configuration GUI handle
 Global $g_OverlayMessageGUI = 0                    ; Handle for the please-wait popup
 Global $g_TooltipGUI = 0                       ; Handle for custom image tooltip
 Global $g_InfoIconData = ObjCreate("Scripting.Dictionary")  ; Maps info icon IDs to image paths
+Global $g_ElementNamesGUI = 0                      ; Handle for element names display GUI
+Global $g_ElementNamesEdit = 0                     ; Handle for element names edit control
 
 ; Day mapping containers for internationalization
 Global $g_DayLabelToNum = ObjCreate("Scripting.Dictionary")    ; Day name -> number (1-7)
@@ -436,8 +438,9 @@ Func ShowConfigGUI()
 	GUICtrlSetColor($g_ErrorAreaLabel, 0xFF0000) ; Red text for errors
 
 	; Action buttons
-	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 60, 550, 80, 30)
-	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 180, 550, 80, 30)
+	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 10, 550, 80, 30)
+	Local $idGetElementsBtn = GUICtrlCreateButton("Get Element Names", 100, 550, 120, 30)
+	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 230, 550, 80, 30)
 
 	; Set initial button states
 	GUICtrlSetState($idSaveBtn, $GUI_DISABLE)  ; Disabled until all fields valid
@@ -445,6 +448,7 @@ Func ShowConfigGUI()
 
 	; Set button event handlers
 	GUICtrlSetOnEvent($idSaveBtn, "SaveConfigGUI")
+	GUICtrlSetOnEvent($idGetElementsBtn, "GetElementNames")
 	GUICtrlSetOnEvent($idQuitBtn, "QuitApp")
 
 	; Perform initial validation check
@@ -982,15 +986,14 @@ Func _GetZoomWindow()
 	$oZoomWindow = FindElementByClassName("ConfMultiTabContentWndClass", $TreeScope_Children)
 	If Not IsObj($oZoomWindow) Then Return SetError(1, 0, 0)
 	Debug("Zoom window obtained.", "UIA")
-	Return $oZoomWindow
 EndFunc   ;==>_GetZoomWindow
 
 ; Focuses the main Zoom meeting window
 ; @return Boolean - True if successful, False otherwise
 Func FocusZoomWindow()
-	Local $oZoomWindow = _GetZoomWindow()
+	_GetZoomWindow()
 	If Not IsObj($oZoomWindow) Then
-		Debug("Unable to obtain Zoom window.", "ERROR")
+		Debug("Unable to obtain Zoom window.", "DEBUG")
 		Return False
 	EndIf
 
@@ -1016,40 +1019,44 @@ Func FocusZoomWindow()
 EndFunc   ;==>FocusZoomWindow
 
 
-; Snaps the Zoom window to a side of the primary monitor
+; Snaps the Zoom window to a side of the primary monitor using Windows snap shortcuts
 ; @return Boolean - True if moved, False otherwise
 Func _SnapZoomWindowToSide()
 	Local $snapSide = GetUserSetting("SnapZoomSide")
 	If StringLower($snapSide) = "disabled" Then
+		Debug("Zoom window snapping disabled; skipping.", "DEBUG")
 		Return False
 	EndIf
 
-	Local $oZoomWindow = _GetZoomWindow()
+	_GetZoomWindow()
 	If Not IsObj($oZoomWindow) Then
 		Debug("_SnapZoomWindowToSide: Zoom window not found", "WARN")
 		Return False
 	EndIf
 
-	; Get HWND
-	Local $hWnd
-	$oZoomWindow.GetCurrentPropertyValue($UIA_NativeWindowHandlePropertyId, $hWnd)
-	If Not $hWnd Or $hWnd = 0 Then
-		Debug("_SnapZoomWindowToSide: Invalid HWND", "DEBUG")
+	; Activate the Zoom window first using the proper focus function
+	FocusZoomWindow()
+
+	; Use Windows snap shortcuts instead of manual positioning
+	If StringLower($snapSide) = "left" Then
+		Send("#{LEFT}") ; Windows + Left arrow
+		Debug("Sent Windows+Left to snap Zoom window to left half", "DEBUG")
+	ElseIf StringLower($snapSide) = "right" Then
+		Send("#{RIGHT}") ; Windows + Right arrow
+		Debug("Sent Windows+Right to snap Zoom window to right half", "DEBUG")
+	Else
+		Debug("_SnapZoomWindowToSide: Invalid snap side: " & $snapSide, "ERROR")
 		Return False
 	EndIf
-	$hWnd = Ptr($hWnd)
 
-	; Primary monitor work area
-	Local $screenW = @DesktopWidth
-	Local $screenH = @DesktopHeight
-	Local $x = 0, $y = 0, $w = Int($screenW / 2), $h = $screenH
-	If StringLower($snapSide) = "right" Then
-		$x = $w
-	EndIf
+	; Wait 0.5 seconds for snap animation to complete
+	Sleep(500)
 
-	; Move and resize
-	WinMove($hWnd, "", $x, $y, $w, $h)
-	Debug("Zoom window snapped to " & $snapSide & " half of primary monitor.", "DEBUG")
+	; Send Escape to dismiss any remaining Windows snap UI
+	Send("{ESC}")
+	Debug("Sent Escape to dismiss Windows snap UI", "DEBUG")
+
+	Debug("Zoom window snapped to " & $snapSide & " half of primary monitor using Windows shortcuts.", "DEBUG")
 	Return True
 EndFunc   ;==>_SnapZoomWindowToSide
 
@@ -1474,7 +1481,7 @@ Func _MoveMouseToStartOfElement($oElement, $Click = False)
 
 	; Move mouse to start (left edge, vertically centered)
 	Local $iStartX = $iLeft + Random(5, 30, 1) ; Random offset from left edge
-	Local $iStartY = $iTop + ($iHeight / 2)
+	Local $iStartY = $iTop + ($iHeight / 2) + Random(-5, 5, 1) ; Random offset from center
 
 	Debug("Moving mouse to start position: " & $iStartX & "," & $iStartY, "DEBUG")
 
@@ -1507,7 +1514,11 @@ Func _OpenHostTools()
 
 		; Controls might be hidden, show them by moving the mouse
 		Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
-		_MoveMouseToStartOfElement($oZoomWindow)
+		Debug("Getting Zoom window.", "DEBUG")
+		_GetZoomWindow()
+		Debug("Moving mouse to start of element: 'Zoom window'", "DEBUG")
+		 _MoveMouseToStartOfElement($oZoomWindow, True)
+		 Debug("Clicking Host Tools button.", "DEBUG")
 
 		; Menu not open, find and click the Host Tools button
 		Local $oHostToolsButton = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oZoomWindow)
@@ -1945,7 +1956,9 @@ Func _LaunchZoom()
 
 	_SnapZoomWindowToSide()
 
-	Return IsObj(_GetZoomWindow())
+	_GetZoomWindow()
+
+	Return IsObj($oZoomWindow)
 EndFunc   ;==>_LaunchZoom
 
 ; Configures settings before and after meetings
@@ -2018,7 +2031,8 @@ Func CheckMeetingWindow($meetingTime)
 	ElseIf $nowMin = ($meetingMin - 1) Then
 		; Meeting start window (1 minute before meeting)
 		If Not $g_DuringMeetingSettingsConfigured Then
-			Local $zoomExists = IsObj(_GetZoomWindow())
+			_GetZoomWindow()
+			Local $zoomExists = IsObj($oZoomWindow)
 			If Not $zoomExists Then
 				Debug(t("ERROR_ZOOM_WINDOW_NOT_FOUND"), "ERROR")
 			Else
@@ -2085,3 +2099,215 @@ While True
 		ResponsiveSleep(60)
 	EndIf
 WEnd
+
+; ================================================================================================
+; ELEMENT NAME COLLECTION FUNCTIONS
+; ================================================================================================
+
+; Collects all element names (UIA_NamePropertyId) from specified windows using default control types
+; @param $oZoomWindow - Zoom window element
+; @param $oHostMenu - Host menu element (optional)
+; @return Array - Array of unique element names, trimmed and sorted
+Func GetElementNamesFromWindows($oZoomWindow, $oHostMenu = 0)
+	Local $aNames = []
+
+	If Not IsObj($oZoomWindow) Then
+		Debug("GetElementNamesFromWindows: Invalid Zoom window object", "DEBUG")
+		Return $aNames
+	EndIf
+
+	; Define control types to search (same as FindElementByPartialName default)
+	Local $aControlTypes[2] = [$UIA_ButtonControlTypeId, $UIA_MenuItemControlTypeId]
+
+	; Collect names from Zoom window
+	_CollectElementNames($oZoomWindow, $aControlTypes, $aNames)
+
+	Debug("Collected these values: " & $aNames & " from Zoom window", "DEBUG")
+
+	; Collect names from Host menu if provided
+	If IsObj($oHostMenu) Then
+		_CollectElementNames($oHostMenu, $aControlTypes, $aNames)
+	EndIf
+
+	; Remove duplicates and sort
+	$aNames = _ArrayUnique($aNames)
+	_ArraySort($aNames)
+
+	Debug("Collected " & UBound($aNames) & " unique element names", "DEBUG")
+	Return $aNames
+EndFunc   ;==>GetElementNamesFromWindows
+
+; Helper function to collect element names from a parent element
+; @param $oParent - Parent element to search within
+; @param $aControlTypes - Array of control types to search
+; @param ByRef $aNames - Array to store collected names
+Func _CollectElementNames($oParent, $aControlTypes, ByRef $aNames)
+	If Not IsObj($oParent) Then Return
+
+	; Search each control type
+	For $iType = 0 To UBound($aControlTypes) - 1
+		Local $iControlType = $aControlTypes[$iType]
+
+		; Create condition for this control type
+		Local $pCondition
+		$oUIAutomation.CreatePropertyCondition($UIA_ControlTypePropertyId, $iControlType, $pCondition)
+
+		; Find all elements of this type
+		Local $pElements
+		$oParent.FindAll($TreeScope_Descendants, $pCondition, $pElements)
+
+		Local $oElements = ObjCreateInterface($pElements, $sIID_IUIAutomationElementArray, $dtagIUIAutomationElementArray)
+		If IsObj($oElements) Then
+			Local $iCount
+			$oElements.Length($iCount)
+
+			; Extract name from each element
+			For $i = 0 To $iCount - 1
+				Local $pElement
+				$oElements.GetElement($i, $pElement)
+
+				Local $oElement = ObjCreateInterface($pElement, $sIID_IUIAutomationElement, $dtagIUIAutomationElement)
+				If IsObj($oElement) Then
+					Local $sName
+					$oElement.GetCurrentPropertyValue($UIA_NamePropertyId, $sName)
+
+					; Trim whitespace and add if not empty
+					$sName = StringStripWS($sName, 3)
+					If $sName <> "" Then
+						_ArrayAdd($aNames, $sName)
+					EndIf
+				EndIf
+			Next
+		EndIf
+	Next
+EndFunc   ;==>_CollectElementNames
+
+; ================================================================================================
+; ELEMENT NAMES DISPLAY GUI
+; ================================================================================================
+
+; Global variables for element names display GUI
+Global $g_ElementNamesGUI = 0
+Global $g_ElementNamesEdit = 0
+
+; Shows a closeable and moveable textarea with collected element names
+; @param $aNames - Array of element names to display
+Func ShowElementNamesGUI($aNames)
+	; Close any existing GUI
+	CloseElementNamesGUI()
+
+	Local $iW = 500
+	Local $iH = 400
+	Local $iX = (@DesktopWidth - $iW) / 2
+	Local $iY = (@DesktopHeight - $iH) / 2
+
+	; Create moveable and closeable GUI
+	$g_ElementNamesGUI = GUICreate("Zoom Element Names", $iW, $iH, $iX, $iY, $WS_CAPTION + $WS_SYSMENU + $WS_MINIMIZEBOX, $WS_EX_TOPMOST)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "CloseElementNamesGUI")
+
+	; Create edit control for displaying element names
+	Local $idEdit = GUICtrlCreateEdit(_ArrayToString($aNames, @CRLF), 10, 10, $iW - 20, $iH - 50, $ES_READONLY + $WS_VSCROLL + $WS_HSCROLL)
+	GUICtrlSetFont($idEdit, 9, 400, 0, "Courier New") ; Monospace font for better readability
+	$g_ElementNamesEdit = $idEdit
+
+	; Create close button
+	Local $idCloseBtn = GUICtrlCreateButton("Close", $iW - 80, $iH - 35, 70, 25)
+	GUICtrlSetOnEvent($idCloseBtn, "CloseElementNamesGUI")
+
+	; Make GUI moveable by dragging the title bar
+	GUISetOnEvent($GUI_EVENT_PRIMARYDOWN, "_StartDragElementNamesGUI")
+
+	GUISetState(@SW_SHOW, $g_ElementNamesGUI)
+
+	Debug("Element names GUI displayed with " & UBound($aNames) & " names", "DEBUG")
+EndFunc   ;==>ShowElementNamesGUI
+
+; Closes the element names display GUI
+Func CloseElementNamesGUI()
+	If $g_ElementNamesGUI <> 0 Then
+		GUIDelete($g_ElementNamesGUI)
+		$g_ElementNamesGUI = 0
+		$g_ElementNamesEdit = 0
+		Debug("Element names GUI closed", "DEBUG")
+	EndIf
+EndFunc   ;==>CloseElementNamesGUI
+
+; Handles dragging of the element names GUI
+Func _StartDragElementNamesGUI()
+	If $g_ElementNamesGUI = 0 Then Return
+
+	; Get mouse position relative to GUI
+	Local $mousePos = MouseGetPos()
+	Local $guiPos = WinGetPos($g_ElementNamesGUI)
+
+	Local $offsetX = $mousePos[0] - $guiPos[0]
+	Local $offsetY = $mousePos[1] - $guiPos[1]
+
+	; Drag while mouse is down
+	While _IsMouseDown()
+		$mousePos = MouseGetPos()
+		WinMove($g_ElementNamesGUI, "", $mousePos[0] - $offsetX, $mousePos[1] - $offsetY)
+		Sleep(10)
+	WEnd
+EndFunc   ;==>_StartDragElementNamesGUI
+
+; Helper function to check if mouse button is down
+Func _IsMouseDown()
+	Local $aMousePos = MouseGetPos()
+	Local $iState = DllCall("user32.dll", "int", "GetAsyncKeyState", "int", 0x01) ; VK_LBUTTON
+	Return BitAND($iState[0], 0x8000) <> 0
+EndFunc   ;==>_IsMouseDown
+
+; ================================================================================================
+; MAIN BUTTON HANDLER
+; ================================================================================================
+
+; Button handler for "Get Element Names" button
+Func GetElementNames()
+	Debug("Get Element Names button clicked", "DEBUG")
+
+	; Check if Zoom meeting is in progress
+	If Not FocusZoomWindow() Then
+		; Meeting not in progress - show message
+		MsgBox($MB_OK + $MB_ICONINFORMATION, "ZoomMate", "No active Zoom meeting found. Please ensure Zoom is open and a meeting is in progress.")
+		Debug("No active Zoom meeting found", "WARN")
+		Return
+	EndIf
+
+	; Meeting is in progress - collect element names
+	Debug("Active Zoom meeting found, collecting element names...", "DEBUG")
+
+	; Get Zoom window object
+	_GetZoomWindow()
+
+	If Not IsObj($oZoomWindow) Then
+		MsgBox($MB_OK + $MB_ICONERROR, "ZoomMate", "Failed to get Zoom window object.")
+		Debug("Failed to get Zoom window object", "DEBUG")
+		Return
+	EndIf
+
+	; Open Host Tools menu to collect names from it too
+	Local $oHostMenu = _OpenHostTools()
+	If Not IsObj($oHostMenu) Then
+		Debug("Failed to open Host Tools menu, collecting names from Zoom window only", "WARN")
+	EndIf
+
+	; Collect element names from both windows
+	Local $aNames = GetElementNamesFromWindows($oZoomWindow, $oHostMenu)
+
+	If UBound($aNames) = 0 Then
+		MsgBox($MB_OK + $MB_ICONWARNING, "ZoomMate", "No element names found. This might indicate an issue with the UIAutomation interface.")
+		Debug("No element names collected", "WARN")
+		Return
+	EndIf
+
+	; Display the collected names in the GUI
+	ShowElementNamesGUI($aNames)
+
+	; Close Host Tools menu if it was opened
+	If IsObj($oHostMenu) Then
+		_CloseHostTools()
+	EndIf
+
+	Debug("Element names collection completed", "SUCCESS")
+EndFunc   ;==>GetElementNames
