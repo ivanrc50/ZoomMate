@@ -1,0 +1,61 @@
+name: Compile AutoIt Script
+
+on:
+  push:
+    branches: [ main, master ]
+    paths: [ 'ZoomMate.au3' ]
+  pull_request:
+    branches: [ main, master ]
+    paths: [ 'ZoomMate.au3' ]
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install Chocolatey
+      run: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+
+    - name: Install AutoIt via Chocolatey
+      run: |
+        choco install autoit --yes
+
+    - name: Compile AutoIt script
+      run: |
+        $autoItPath = "${env:ProgramFiles(x86)}\AutoIt3\Aut2exe\Aut2exe.exe"
+        $iconPath = "zoommate.ico"
+
+        # Check if icon file exists
+        if (Test-Path $iconPath) {
+          Write-Host "Using icon: $iconPath"
+          & $autoItPath /in "ZoomMate.au3" /out "ZoomMate.exe" /icon $iconPath
+        } else {
+          Write-Host "Icon file not found, compiling without icon"
+          & $autoItPath /in "ZoomMate.au3" /out "ZoomMate.exe"
+        }
+
+    - name: Verify compilation
+      run: |
+        if (Test-Path "ZoomMate.exe") {
+          $fileSize = (Get-Item "ZoomMate.exe").Length
+          Write-Host "Compilation successful! File size: $fileSize bytes"
+        } else {
+          Write-Host "Compilation failed - executable not found"
+          exit 1
+        }
+
+    - name: Commit compiled executable
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add ZoomMate.exe
+        git diff --quiet && git diff --staged --quiet || git commit -m "Update compiled executable [skip ci]"
+        git push
