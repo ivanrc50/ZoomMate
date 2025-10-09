@@ -32,20 +32,26 @@ jobs:
       run: |
         $autoItPath = "${env:ProgramFiles(x86)}\AutoIt3\Aut2exe\Aut2exe.exe"
         $iconPath = "zoommate.ico"
-
+        $buildDir = "build"
+        
+        # Create build directory if it doesn't exist
+        if (!(Test-Path $buildDir)) {
+          New-Item -ItemType Directory -Path $buildDir
+        }
+        
         # Check if icon file exists
         if (Test-Path $iconPath) {
           Write-Host "Using icon: $iconPath"
-          & $autoItPath /in "ZoomMate.au3" /out "ZoomMate.exe" /icon $iconPath
+          & $autoItPath /in "ZoomMate.au3" /out "$buildDir\ZoomMate.exe" /icon $iconPath
         } else {
           Write-Host "Icon file not found, compiling without icon"
-          & $autoItPath /in "ZoomMate.au3" /out "build/ZoomMate.exe"
+          & $autoItPath /in "ZoomMate.au3" /out "$buildDir\ZoomMate.exe"
         }
 
     - name: Verify compilation
       run: |
-        if (Test-Path "ZoomMate.exe") {
-          $fileSize = (Get-Item "ZoomMate.exe").Length
+        if (Test-Path "build/ZoomMate.exe") {
+          $fileSize = (Get-Item "build/ZoomMate.exe").Length
           Write-Host "Compilation successful! File size: $fileSize bytes"
         } else {
           Write-Host "Compilation failed - executable not found"
@@ -56,6 +62,6 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add ZoomMate.exe
+        git add build/ZoomMate.exe
         git diff --quiet && git diff --staged --quiet || git commit -f -m "Update compiled executable [skip ci]"
         git push -f
