@@ -462,15 +462,15 @@ Func ShowConfigGUI()
 	$currentY += 30
 	_AddTextInputFieldWithTooltipAndLookup("YesValue", t("LABEL_YES"), 10, $currentY, 300, $currentY, 200, "LABEL_YES_EXPLAIN", "yes.jpg")
 	$currentY += 30
-	_AddTextInputFieldWithTooltipAndLookup("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNCHECKED_VALUE_EXPLAIN", "unchecked.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("UncheckedValue", t("LABEL_UNCHECKED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNCHECKED_VALUE_EXPLAIN", "")
 	$currentY += 30
-	_AddTextInputFieldWithTooltipAndLookup("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "currently_unmuted.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("CurrentlyUnmutedValue", t("LABEL_CURRENTLY_UNMUTED_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_CURRENTLY_UNMUTED_VALUE_EXPLAIN", "")
 	$currentY += 30
-	_AddTextInputFieldWithTooltipAndLookup("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "unmute_audio.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("UnmuteAudioValue", t("LABEL_UNMUTE_AUDIO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_UNMUTE_AUDIO_VALUE_EXPLAIN", "")
 	$currentY += 30
-	_AddTextInputFieldWithTooltipAndLookup("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "stop_video.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("StopVideoValue", t("LABEL_STOP_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_STOP_VIDEO_VALUE_EXPLAIN", "")
 	$currentY += 30
-	_AddTextInputFieldWithTooltipAndLookup("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_START_VIDEO_VALUE_EXPLAIN", "start_video.jpg")
+	_AddTextInputFieldWithTooltipAndLookup("StartVideoValue", t("LABEL_START_VIDEO_VALUE"), 10, $currentY, 300, $currentY, 200, "LABEL_START_VIDEO_VALUE_EXPLAIN", "")
 	$currentY += 30
 	_AddTextInputFieldWithTooltipAndLookup("ZoomSecurityUnmuteValue", t("LABEL_ZOOM_SECURITY_UNMUTE"), 10, $currentY, 300, $currentY, 200, "LABEL_ZOOM_SECURITY_UNMUTE_EXPLAIN", "security_unmute.jpg")
 	$currentY += 30
