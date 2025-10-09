@@ -1037,6 +1037,54 @@ Func _SnapZoomWindowToSide()
 	; Activate the Zoom window first using the proper focus function
 	FocusZoomWindow()
 
+	; Check if window is already snapped to the desired side (with tolerance for taskbar/borders)
+	Local $aBoundingRect
+	$oZoomWindow.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $aBoundingRect)
+
+	Debug("UIA Bounding Rectangle: " & $aBoundingRect & " (raw)", "DEBUG")
+
+	If IsArray($aBoundingRect) And UBound($aBoundingRect) >= 4 Then
+		; UIA BoundingRectangle format: [left, top, width, height]
+		Local $iLeft = $aBoundingRect[0]
+		Local $iTop = $aBoundingRect[1]
+		Local $iWidth = $aBoundingRect[2]
+		Local $iHeight = $aBoundingRect[3]
+
+		Debug("Parsed position - X:" & $iLeft & " Y:" & $iTop & " W:" & $iWidth & " H:" & $iHeight, "DEBUG")
+
+		Local $iScreenWidth = @DesktopWidth
+		Local $iScreenHeight = @DesktopHeight
+
+		; Calculate expected positions for snapped windows (with 50px tolerance for borders/taskbar)
+		Local $iTolerance = 50
+		Local $iHalfWidth = $iScreenWidth / 2
+
+		Debug("Window position check - X:" & $iLeft & " Y:" & $iTop & " W:" & $iWidth & " H:" & $iHeight & " | Screen:" & $iScreenWidth & "x" & $iScreenHeight & " | Half:" & $iHalfWidth & " | Tolerance:" & $iTolerance, "DEBUG")
+
+		Local $bIsLeftSnapped = ($iLeft <= $iTolerance And _
+							   $iTop >= -$iTolerance And $iTop <= $iTolerance And _
+							   Abs($iWidth - $iHalfWidth) <= $iTolerance And _
+							   Abs($iHeight - $iScreenHeight) <= $iTolerance)
+
+		Local $bIsRightSnapped = ($iLeft >= $iHalfWidth - $iTolerance And _
+								$iLeft <= $iHalfWidth + $iTolerance And _
+								$iTop >= -$iTolerance And $iTop <= $iTolerance And _
+								Abs($iWidth - $iHalfWidth) <= $iTolerance And _
+								Abs($iHeight - $iScreenHeight) <= $iTolerance)
+
+		Debug("Position analysis - LeftSnapped:" & $bIsLeftSnapped & " RightSnapped:" & $bIsRightSnapped & " | TargetSide:" & $snapSide, "DEBUG")
+
+		If StringLower($snapSide) = "left" And $bIsLeftSnapped Then
+			Debug("Zoom window already snapped to left side; skipping.", "DEBUG")
+			Return True
+		ElseIf StringLower($snapSide) = "right" And $bIsRightSnapped Then
+			Debug("Zoom window already snapped to right side; skipping.", "DEBUG")
+			Return True
+		EndIf
+	Else
+		Debug("Failed to get UIA BoundingRectangle - IsArray:" & IsArray($aBoundingRect) & " UBound:" & (IsArray($aBoundingRect) ? UBound($aBoundingRect) : "N/A"), "WARN")
+	EndIf
+
 	; Use Windows snap shortcuts instead of manual positioning
 	If StringLower($snapSide) = "left" Then
 		Send("#{LEFT}") ; Windows + Left arrow
