@@ -10,7 +10,6 @@
 ; ================================================================================================
 #AutoIt3Wrapper_UseX64=y
 #include <MsgBoxConstants.au3>
-#include <MsgBoxConstants.au3>
 #include <Array.au3>
 #include <FileConstants.au3>
 #include <Date.au3>
