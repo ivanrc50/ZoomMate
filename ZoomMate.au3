@@ -188,35 +188,50 @@ Func _InitDayLabelMaps()
 		Local $label = t($key)
 		If Not $g_DayLabelToNum.Exists($label) Then $g_DayLabelToNum.Add($label, $i)
 		If Not $g_DayNumToLabel.Exists(String($i)) Then $g_DayNumToLabel.Add(String($i), $label)
-		Debug("  " & $label & " -> " & $i, "DEBUG")
+		Debug("  " & $label & " -> " & $i, "VERBOSE")
 	Next
-	Debug("Day mappings initialized:", "DEBUG")
+	Debug("Day mappings initialized", "VERBOSE")
 EndFunc   ;==>_InitDayLabelMaps
 
 ; ================================================================================================
 ; DEBUG AND STATUS FUNCTIONS
 ; ================================================================================================
 
-; Debug logging and status update function
+; Debug logging and status update function with enhanced formatting and user notification
 ; @param $string - Message to log/display
-; @param $type - Message type (DEBUG, INFO, ERROR, etc.)
-; @param $noNotify - If True, suppress tray notifications
-Func Debug($string, $type = "DEBUG", $noNotify = False)
+; @param $type - Message type (DEBUG, INFO, ERROR, SUCCESS, VERBOSE, etc.)
+; @param $noNotify - If True, suppress overlay notifications
+; @param $isVerbose - If True, this is verbose debug logging (only shown in console)
+; @param $functionName - Name of the calling function (optional, auto-detected if not provided)
+Func Debug($string, $type = "VERBOSE", $noNotify = False, $isVerbose = False)
+
 	If ($string) Then
-		; Always log to console
-		ConsoleWrite("[" & $type & "] " & $string & @CRLF)
+		; Format timestamp for better log readability
+		Local $timestamp = @YEAR & "-" & @MON & "-" & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC
 
-		; Update status and show tray notification for important messages
-		If $type = "INFO" Or $type = "ERROR" Then
-			$g_StatusMsg = $string
-			If Not $noNotify Then
-				TrayTip("ZoomMate", $string, 5, ($type = "INFO" ? 1 : 3))
+		; Console logging with enhanced formatting
+		If $isVerbose Then
+			; Verbose debug logging - only to console, no user notification
+			ConsoleWrite("[" & $timestamp & "] " & " VERBOSE: " & $string & @CRLF)
+		Else
+			; Standard logging - to console with type identification
+			ConsoleWrite("[" & $timestamp & "] " & $type & ": " & $string & @CRLF)
+
+			; Update status for important messages (non-verbose)
+			If $type = "INFO" Or $type = "ERROR" Then
+				$g_StatusMsg = $string
+
+				; Show overlay notification for important messages (unless suppressed)
+				If Not $noNotify Then
+					Local $isError = ($type = "ERROR")
+					ShowOverlayMessage($string, $isError, Not $isError)
+				EndIf
 			EndIf
-		EndIf
 
-		; Change tray icon for errors
-		If $type = "ERROR" Then
-			TraySetIcon($g_TrayIcon, 1) ; Error icon
+			; Change tray icon for errors
+			If $type = "ERROR" Then
+				TraySetIcon($g_TrayIcon, 1) ; Error icon
+			EndIf
 		EndIf
 	EndIf
 EndFunc   ;==>Debug
@@ -531,24 +546,37 @@ Func _AddSectionHeader($text, $x, $y)
 	GUICtrlSetBkColor($idLabel, 0xE8F4FD) ; Light blue background
 	Return $idLabel
 EndFunc   ;==>_AddSectionHeader
-; Shows a message dialog during long operations with i18n support
-; @param $messageType - Type of message to show ('PLEASE_WAIT' or 'POST_MEETING_HIT_KEY')
-Func ShowOverlayMessage($messageType = 'PLEASE_WAIT')
+; Shows a message dialog during long operations with i18n support and enhanced styling for errors vs info messages
+; @param $messageType - Type of message to show ('PLEASE_WAIT', 'POST_MEETING_HIT_KEY', or custom error/info messages)
+; @param $isError - Boolean indicating if this is an error message (red background, requires click to dismiss)
+; @param $autoDismiss - Boolean indicating if the message should auto-dismiss (default true for info, false for errors)
+Func ShowOverlayMessage($messageType = 'PLEASE_WAIT', $isError = False, $autoDismiss = True)
 	; If already showing, just update it
 	If $g_OverlayMessageGUI <> 0 Then
 		; Update existing GUI with new message
-		Local $title = t($messageType & '_TITLE')
-		Local $text = t($messageType & '_TEXT')
-		WinSetTitle($g_OverlayMessageGUI, '', $title)
+		Local $text = t($messageType)
+		WinSetTitle($g_OverlayMessageGUI, '', '')
 		Local $idLblExisting = _GetOverlayMessageLabelControl()
 		If $idLblExisting <> 0 Then
 			; Use GUICtrl functions since we have the control ID
 			GUICtrlSetData($idLblExisting, $text)
 			; Update font styling to use default Windows system font
 			GUICtrlSetFont($idLblExisting, 14, 700, Default, "Segoe UI")
+			; Update background color based on error state
+			If $isError Then
+				GUICtrlSetBkColor($idLblExisting, 0xFFE6E6) ; Light red for errors
+				GUICtrlSetColor($idLblExisting, 0xCC0000) ; Dark red text for errors
+			Else
+				GUICtrlSetBkColor($idLblExisting, 0xE6F3FF) ; Light blue for info
+				GUICtrlSetColor($idLblExisting, 0x0066CC) ; Blue text for info
+			EndIf
 		EndIf
 		GUISetState(@SW_SHOW, $g_OverlayMessageGUI)
 		WinSetOnTop(HWnd($g_OverlayMessageGUI), '', $WINDOWS_ONTOP)
+		; Set up auto-dismiss timer for non-error messages
+		If Not $isError And $autoDismiss Then
+			AdlibRegister("HideOverlayMessage", 5000) ; Auto-dismiss after 5 seconds for info messages
+		EndIf
 		Return
 	EndIf
 
@@ -558,21 +586,37 @@ Func ShowOverlayMessage($messageType = 'PLEASE_WAIT')
 	Local $iY = (@DesktopHeight - $iH) / 2
 
 	; Create borderless, always-on-top popup on primary monitor
-	$g_OverlayMessageGUI = GUICreate(t($messageType & '_TITLE'), $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
-	GUISetBkColor(0x0000FF, $g_OverlayMessageGUI) ; Blue background
+	$g_OverlayMessageGUI = GUICreate(t($messageType), $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
+
+	; Set background color based on error state
+	Local $bgColor = ($isError ? 0xFFE6E6 : 0xE6F3FF) ; Light red for errors, light blue for info
+	GUISetBkColor($bgColor, $g_OverlayMessageGUI)
 
 	; Create a label that supports both centering and word wrapping
-	Local $idLbl = GUICtrlCreateLabel(t($messageType & '_TEXT'), 10, 10, $iW - 20, $iH - 20, $SS_CENTER)
-	GUICtrlSetColor($idLbl, 0xFFFFFF)
+	Local $idLbl = GUICtrlCreateLabel(t($messageType), 10, 10, $iW - 20, $iH - 20, $SS_CENTER)
+	; Set text color based on error state
+	Local $textColor = ($isError ? 0xCC0000 : 0x0066CC) ; Dark red for errors, blue for info
+	GUICtrlSetColor($idLbl, $textColor)
 	GUICtrlSetFont($idLbl, 14, 700, Default, "Segoe UI") ; Use default Windows system font
+
+	; Make the label clickable for dismissal (especially for error messages)
+	GUICtrlSetCursor($idLbl, 0) ; Hand cursor
+	GUICtrlSetOnEvent($idLbl, "HideOverlayMessage")
 
 	GUISetState(@SW_SHOW, $g_OverlayMessageGUI)
 	WinSetOnTop(HWnd($g_OverlayMessageGUI), '', $WINDOWS_ONTOP)
+
+	; Set up auto-dismiss timer for non-error messages
+	If Not $isError And $autoDismiss Then
+		AdlibRegister("HideOverlayMessage", 3000) ; Auto-dismiss after 3 seconds for info messages
+	EndIf
 EndFunc   ;==>ShowOverlayMessage
 
 ; Hides and destroys the "Please Wait" message dialog
 Func HideOverlayMessage()
 	If $g_OverlayMessageGUI <> 0 Then
+		; Unregister any auto-dismiss timer
+		AdlibUnregister("HideOverlayMessage")
 		GUIDelete($g_OverlayMessageGUI)
 		$g_OverlayMessageGUI = 0
 	EndIf
@@ -724,7 +768,7 @@ EndFunc   ;==>_CreateLookupButton
 ; Handler for when an input field gets focus
 Func _OnFieldFocus()
 	$g_ActiveFieldForLookup = @GUI_CtrlId
-	Debug("Field focused: " & @GUI_CtrlId, "DEBUG")
+	Debug("Field focused: " & @GUI_CtrlId, "VERBOSE")
 EndFunc   ;==>_OnFieldFocus
 
 ; Handler for lookup button click
@@ -745,27 +789,18 @@ EndFunc   ;==>_OnLookupButtonClick
 
 ; Collects element names and shows selection GUI for field population
 Func GetElementNamesForField()
-	Debug("Lookup button clicked - collecting element names for field", "DEBUG")
+	Debug("Lookup button clicked - collecting element names for field", "VERBOSE")
 
 	; Check if Zoom meeting is in progress
 	If Not FocusZoomWindow() Then
-		; Meeting not in progress - show message
-		MsgBox($MB_OK + $MB_ICONINFORMATION, "ZoomMate", "No active Zoom meeting found. Please ensure Zoom is open and a meeting is in progress.")
-		Debug("No active Zoom meeting found", "WARN")
 		Return
 	EndIf
 
 	; Meeting is in progress - collect element names
-	Debug("Active Zoom meeting found, collecting element names...", "DEBUG")
+	Debug("Active Zoom meeting found, collecting element names...", "VERBOSE")
 
 	; Get Zoom window object
-	_GetZoomWindow()
-
-	If Not IsObj($oZoomWindow) Then
-		MsgBox($MB_OK + $MB_ICONERROR, "ZoomMate", "Failed to get Zoom window object.")
-		Debug("Failed to get Zoom window object", "DEBUG")
-		Return
-	EndIf
+	if not _GetZoomWindow() then return
 
 	; Open Host Tools menu to collect names from it too
 	Local $oHostMenu = _OpenHostTools()
@@ -790,7 +825,7 @@ Func GetElementNamesForField()
 		_CloseHostTools()
 	EndIf
 
-	Debug("Element names collection completed for field lookup", "SUCCESS")
+	Debug("Element names collection completed for field lookup", "VERBOSE")
 EndFunc   ;==>GetElementNamesForField
 
 ; Callback function when user selects an element name for a field
@@ -800,7 +835,7 @@ Func OnFieldElementSelected($selectedName)
 		GUICtrlSetData($g_ActiveFieldForLookup, $selectedName)
 		; Trigger validation check
 		CheckConfigFields()
-		Debug("Populated field " & $g_ActiveFieldForLookup & " with: " & $selectedName, "DEBUG")
+		Debug("Populated field " & $g_ActiveFieldForLookup & " with: " & $selectedName, "VERBOSE")
 	Else
 		Debug("No active field to populate", "WARN")
 	EndIf
@@ -828,13 +863,13 @@ Func _AddDayDropdownField($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wIn
 	; Set current selection based on saved setting
 	Local $currentNum = String(GetUserSetting($key))
 	Local $currentLabel = $currentNum
-	Debug("Day dropdown " & $key & ": Raw setting value = '" & $currentNum & "'", "DEBUG")
+	Debug("Day dropdown " & $key & ": Raw setting value = '" & $currentNum & "'", "VERBOSE")
 	If $g_DayNumToLabel.Exists($currentNum) Then
 		$currentLabel = $g_DayNumToLabel.Item($currentNum)
-		Debug("Day dropdown " & $key & ": Setting selection to '" & $currentLabel & "' (day " & $currentNum & ")", "DEBUG")
+		Debug("Day dropdown " & $key & ": Setting selection to '" & $currentLabel & "' (day " & $currentNum & ")", "VERBOSE")
 	Else
 		Debug("Day dropdown " & $key & ": Day number " & $currentNum & " not found in translation map", "WARN")
-		Debug("Day dropdown " & $key & ": Available translations: " & $g_DayNumToLabel.Count & " items", "DEBUG")
+		Debug("Day dropdown " & $key & ": Available translations: " & $g_DayNumToLabel.Count & " items", "VERBOSE")
 	EndIf
 
 	Local $idCombo = GUICtrlCreateCombo("", $xInput, $yInput, $wInput, 20)
@@ -1183,7 +1218,7 @@ Debug("Desktop element obtained.", "UIA")
 ; @param $oParent - Parent element to search within (default: desktop)
 ; @return Object - Found element or 0 if not found
 Func FindElementByClassName($sClassName, $iScope = Default, $oParent = Default)
-	Debug("Searching for element with class: '" & $sClassName & "'", "DEBUG")
+	Debug("Searching for element with class: '" & $sClassName & "'", "VERBOSE")
 
 	; Use desktop as default parent if not specified
 	Local $oSearchParent = $oDesktop
@@ -1206,7 +1241,7 @@ Func FindElementByClassName($sClassName, $iScope = Default, $oParent = Default)
 		Return 0
 	EndIf
 
-	Debug("Element with class '" & $sClassName & "' found.", "DEBUG")
+	Debug("Element with class '" & $sClassName & "' found.", "VERBOSE")
 	Return $oElement
 EndFunc   ;==>FindElementByClassName
 
@@ -1214,7 +1249,10 @@ EndFunc   ;==>FindElementByClassName
 ; @return Object - Zoom window element or error
 Func _GetZoomWindow()
 	$oZoomWindow = FindElementByClassName("ConfMultiTabContentWndClass", $TreeScope_Children)
-	If Not IsObj($oZoomWindow) Then Return SetError(1, 0, 0)
+	If Not IsObj($oZoomWindow) Then
+		Debug(t("ERROR_ZOOM_WINDOW_NOT_FOUND"), "ERROR")
+		Return SetError(1, 0, 0)
+	EndIf
 	Debug("Zoom window obtained.", "UIA")
 	Return $oZoomWindow
 EndFunc   ;==>_GetZoomWindow
@@ -1227,11 +1265,9 @@ EndFunc   ;==>_FindZoomWindowInternal
 ; Focuses the main Zoom meeting window
 ; @return Boolean - True if successful, False otherwise
 Func FocusZoomWindow()
+	Debug("Focusing Zoom window...", "INFO")
 	Local $oZoomWindow = _GetZoomWindow()
-	If Not IsObj($oZoomWindow) Then
-		Debug("Unable to obtain Zoom window.", "DEBUG")
-		Return False
-	EndIf
+	If Not IsObj($oZoomWindow) Then Return False
 
 	; Get the native HWND property from the UIA element
 	Local $hWnd
@@ -1242,13 +1278,13 @@ Func FocusZoomWindow()
 		$hWnd = Ptr($hWnd)
 		WinActivate($hWnd)
 		If WinWaitActive($hWnd, "", 3) Then
-			Debug("Zoom window activated and focused.", "SUCCESS")
+			Debug("Zoom window activated and focused.", "VERBOSE")
 			Return True
 		Else
-			Debug("Zoom window did not become active within timeout.", "WARN")
+			Debug(t("ERROR_ZOOM_WINDOW_NOT_FOUND"), "ERROR")
 		EndIf
 	Else
-		Debug("Zoom window has no valid HWND property.", "ERROR")
+		Debug(t("ERROR_ZOOM_WINDOW_NOT_FOUND"), "ERROR")
 	EndIf
 
 	Return False
@@ -1260,24 +1296,21 @@ EndFunc   ;==>FocusZoomWindow
 Func _SnapZoomWindowToSide()
 	Local $snapSide = GetUserSetting("SnapZoomSide")
 	If StringLower($snapSide) = "disabled" Then
-		Debug("Zoom window snapping disabled; skipping.", "DEBUG")
+		Debug("Zoom window snapping disabled; skipping.", "VERBOSE")
 		Return False
 	EndIf
 
 	_GetZoomWindow()
-	If Not IsObj($oZoomWindow) Then
-		Debug("_SnapZoomWindowToSide: Zoom window not found", "WARN")
-		Return False
-	EndIf
+	If Not IsObj($oZoomWindow) Then Return False
 
 	; Activate the Zoom window first using the proper focus function
-	FocusZoomWindow()
+	If Not FocusZoomWindow() Then Return False
 
 	; Check if window is already snapped to the desired side (with tolerance for taskbar/borders)
 	Local $aBoundingRect
 	$oZoomWindow.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $aBoundingRect)
 
-	Debug("UIA Bounding Rectangle: " & $aBoundingRect & " (raw)", "DEBUG")
+	Debug("UIA Bounding Rectangle: " & $aBoundingRect & " (raw)", "VERBOSE")
 
 	If IsArray($aBoundingRect) And UBound($aBoundingRect) >= 4 Then
 		; UIA BoundingRectangle format: [left, top, width, height]
@@ -1286,7 +1319,7 @@ Func _SnapZoomWindowToSide()
 		Local $iWidth = $aBoundingRect[2]
 		Local $iHeight = $aBoundingRect[3]
 
-		Debug("Parsed position - X:" & $iLeft & " Y:" & $iTop & " W:" & $iWidth & " H:" & $iHeight, "DEBUG")
+		Debug("Parsed position - X:" & $iLeft & " Y:" & $iTop & " W:" & $iWidth & " H:" & $iHeight, "VERBOSE")
 
 		Local $iScreenWidth = @DesktopWidth
 		Local $iScreenHeight = @DesktopHeight
@@ -1295,7 +1328,7 @@ Func _SnapZoomWindowToSide()
 		Local $iTolerance = $SNAP_TOLERANCE_PX
 		Local $iHalfWidth = $iScreenWidth / 2
 
-		Debug("Window position check - X:" & $iLeft & " Y:" & $iTop & " W:" & $iWidth & " H:" & $iHeight & " | Screen:" & $iScreenWidth & "x" & $iScreenHeight & " | Half:" & $iHalfWidth & " | Tolerance:" & $iTolerance, "DEBUG")
+		Debug("Window position check - X:" & $iLeft & " Y:" & $iTop & " W:" & $iWidth & " H:" & $iHeight & " | Screen:" & $iScreenWidth & "x" & $iScreenHeight & " | Half:" & $iHalfWidth & " | Tolerance:" & $iTolerance, "VERBOSE")
 
 		Local $bIsLeftSnapped = ($iLeft <= $iTolerance And _
 				$iTop >= -$iTolerance And $iTop <= $iTolerance And _
@@ -1308,13 +1341,13 @@ Func _SnapZoomWindowToSide()
 				Abs($iWidth - $iHalfWidth) <= $iTolerance And _
 				Abs($iHeight - $iScreenHeight) <= $iTolerance)
 
-		Debug("Position analysis - LeftSnapped:" & $bIsLeftSnapped & " RightSnapped:" & $bIsRightSnapped & " | TargetSide:" & $snapSide, "DEBUG")
+		Debug("Position analysis - LeftSnapped:" & $bIsLeftSnapped & " RightSnapped:" & $bIsRightSnapped & " | TargetSide:" & $snapSide, "VERBOSE")
 
 		If StringLower($snapSide) = "left" And $bIsLeftSnapped Then
-			Debug("Zoom window already snapped to left side; skipping.", "DEBUG")
+			Debug("Zoom window already snapped to left side; skipping.", "VERBOSE")
 			Return True
 		ElseIf StringLower($snapSide) = "right" And $bIsRightSnapped Then
-			Debug("Zoom window already snapped to right side; skipping.", "DEBUG")
+			Debug("Zoom window already snapped to right side; skipping.", "VERBOSE")
 			Return True
 		EndIf
 	Else
@@ -1324,10 +1357,10 @@ Func _SnapZoomWindowToSide()
 	; Use Windows snap shortcuts instead of manual positioning
 	If StringLower($snapSide) = "left" Then
 		Send("#{LEFT}") ; Windows + Left arrow
-		Debug("Sent Windows+Left to snap Zoom window to left half", "DEBUG")
+		Debug("Sent Windows+Left to snap Zoom window to left half", "VERBOSE")
 	ElseIf StringLower($snapSide) = "right" Then
 		Send("#{RIGHT}") ; Windows + Right arrow
-		Debug("Sent Windows+Right to snap Zoom window to right half", "DEBUG")
+		Debug("Sent Windows+Right to snap Zoom window to right half", "VERBOSE")
 	Else
 		Debug("_SnapZoomWindowToSide: Invalid snap side: " & $snapSide, "ERROR")
 		Return False
@@ -1338,9 +1371,9 @@ Func _SnapZoomWindowToSide()
 
 	; Send Escape to dismiss any remaining Windows snap UI
 	Send("{ESC}")
-	Debug("Sent Escape to dismiss Windows snap UI", "DEBUG")
+	Debug("Sent Escape to dismiss Windows snap UI", "VERBOSE")
 
-	Debug("Zoom window snapped to " & $snapSide & " half of primary monitor using Windows shortcuts.", "DEBUG")
+	Debug("Zoom window snapped to " & $snapSide & " half of primary monitor using Windows shortcuts.", "VERBOSE")
 	Return True
 EndFunc   ;==>_SnapZoomWindowToSide
 
@@ -1351,15 +1384,15 @@ EndFunc   ;==>_SnapZoomWindowToSide
 ; @param $oParent - Parent element to search within (default: desktop)
 ; @return Object - Found element or 0 if not found
 Func FindElementByPartialName($sPartial, $aControlTypes = Default, $oParent = Default)
-	Debug("Searching for element containing: '" & $sPartial & "'", "DEBUG")
+	Debug("Searching for element containing: '" & $sPartial & "'", "VERBOSE")
 
 	; Use desktop as default parent if not specified
 	Local $oSearchParent = $oDesktop
 	If $oParent <> Default Then
 		$oSearchParent = $oParent
-		Debug("Using custom parent element for search", "DEBUG")
+		Debug("Using custom parent element for search", "VERBOSE")
 	Else
-		Debug("Using desktop as search parent", "DEBUG")
+		Debug("Using desktop as search parent", "VERBOSE")
 	EndIf
 
 	; Default to button and menu item if not specified
@@ -1385,7 +1418,7 @@ Func FindElementByPartialName($sPartial, $aControlTypes = Default, $oParent = De
 		If IsObj($oElements) Then
 			Local $iCount
 			$oElements.Length($iCount)
-			Debug("Found " & $iCount & " elements of this type.", "DEBUG")
+			Debug("Found " & $iCount & " elements of this type.", "VERBOSE")
 
 			; Check each element for partial name match
 			For $i = 0 To $iCount - 1
@@ -1397,10 +1430,10 @@ Func FindElementByPartialName($sPartial, $aControlTypes = Default, $oParent = De
 					; Get element name and check for partial match
 					Local $sName
 					$oElement.GetCurrentPropertyValue($UIA_NamePropertyId, $sName)
-					Debug("Element found with name: '" & $sName & "'", "DEBUG")
+					Debug("Element found with name: '" & $sName & "'", "VERBOSE")
 
 					If StringInStr($sName, $sPartial, $STR_NOCASESENSEBASIC) > 0 Then
-						Debug("Matching element found with name: '" & $sName & "'", "DEBUG")
+						Debug("Matching element found with name: '" & $sName & "'", "VERBOSE")
 						Return $oElement
 					EndIf
 				EndIf
@@ -1424,7 +1457,7 @@ Func FindElementWithRetry($sPartial, $iMaxRetries = $ELEMENT_SEARCH_RETRY_COUNT,
 		Local $oElement = FindElementByPartialName($sPartial, $aControlTypes, $oParent)
 		If IsObj($oElement) Then Return $oElement
 
-		Debug("Element '" & $sPartial & "' not found, retry " & $i & "/" & $iMaxRetries, "DEBUG")
+		Debug("Element '" & $sPartial & "' not found, retry " & $i & "/" & $iMaxRetries, "VERBOSE")
 		Sleep($iDelayMs)
 	Next
 
@@ -1437,14 +1470,14 @@ EndFunc   ;==>FindElementWithRetry
 ; @param $oParent - Parent element to search within (default: desktop)
 ; @return Object - First element found or 0 if none found
 Func FindElementByControlType($iControlType, $oParent = Default)
-	Debug("Searching for ALL elements of control type: " & $iControlType, "DEBUG")
+	Debug("Searching for ALL elements of control type: " & $iControlType, "VERBOSE")
 
 	Local $oSearchParent = $oDesktop
 	If $oParent <> Default Then
 		$oSearchParent = $oParent
-		Debug("Using custom parent element for search", "DEBUG")
+		Debug("Using custom parent element for search", "VERBOSE")
 	Else
-		Debug("Using desktop as search parent", "DEBUG")
+		Debug("Using desktop as search parent", "VERBOSE")
 	EndIf
 
 	Local $pCondition
@@ -1468,7 +1501,7 @@ Func FindElementByControlType($iControlType, $oParent = Default)
 		Return 0
 	EndIf
 
-	Debug("Found " & $count & " element(s) of control type " & $iControlType, "DEBUG")
+	Debug("Found " & $count & " element(s) of control type " & $iControlType, "VERBOSE")
 
 	; If only one element, return it directly
 	If $count = 1 Then
@@ -1478,7 +1511,7 @@ Func FindElementByControlType($iControlType, $oParent = Default)
 
 		Local $sName
 		$oElem.GetCurrentPropertyValue($UIA_NamePropertyId, $sName)
-		Debug("Single element name: " & $sName, "DEBUG")
+		Debug("Single element name: " & $sName, "VERBOSE")
 
 		Return $oElem
 	EndIf
@@ -1559,7 +1592,7 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 
 	; Get element name for debugging
 	Local $sElementName = GetElementName($oElement)
-	Debug("Attempting to click element: '" & $sElementName & "'", "DEBUG")
+	Debug("Attempting to click element: '" & $sElementName & "'", "VERBOSE")
 
 	; Method 0: Force mouse click (only when requested)
 	If $ForceClick Then
@@ -1570,14 +1603,14 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 				Return False
 			EndIf
 			ClickByBoundingRectangle($oElement)
-			Debug("Element clicked via bounding rectangle.", "SUCCESS")
+			Debug("Element clicked via bounding rectangle.", "VERBOSE")
 		Else
 			If TimerDiff($iStartTime) > $iTimeoutMs Then
 				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
 				Return False
 			EndIf
 			UIA_MouseClick($oElement)
-			Debug("Element clicked via UIA_MouseClick.", "SUCCESS")
+			Debug("Element clicked via UIA_MouseClick.", "VERBOSE")
 		EndIf
 		Return True
 	EndIf
@@ -1592,9 +1625,9 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
 				Return False
 			EndIf
-			Debug("Using Invoke pattern for: '" & $sElementName & "'", "DEBUG")
+			Debug("Using Invoke pattern for: '" & $sElementName & "'", "VERBOSE")
 			$oInvokePattern.Invoke()
-			Debug("Element clicked via Invoke pattern.", "SUCCESS")
+			Debug("Element clicked via Invoke pattern.", "VERBOSE")
 			Return True
 		EndIf
 	EndIf
@@ -1609,9 +1642,9 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
 				Return False
 			EndIf
-			Debug("Using LegacyAccessible pattern for: '" & $sElementName & "'", "DEBUG")
+			Debug("Using LegacyAccessible pattern for: '" & $sElementName & "'", "VERBOSE")
 			$oLegacyPattern.DoDefaultAction()
-			Debug("Element clicked via LegacyAccessible pattern.", "SUCCESS")
+			Debug("Element clicked via LegacyAccessible pattern.", "VERBOSE")
 			Return True
 		EndIf
 	EndIf
@@ -1626,9 +1659,9 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
 				Return False
 			EndIf
-			Debug("Using SelectionItem pattern for: '" & $sElementName & "'", "DEBUG")
+			Debug("Using SelectionItem pattern for: '" & $sElementName & "'", "VERBOSE")
 			$oSelectionItemPattern.Select()
-			Debug("Element selected via SelectionItem pattern.", "SUCCESS")
+			Debug("Element selected via SelectionItem pattern.", "VERBOSE")
 			Return True
 		EndIf
 	EndIf
@@ -1643,9 +1676,9 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
 				Return False
 			EndIf
-			Debug("Using Toggle pattern for: '" & $sElementName & "'", "DEBUG")
+			Debug("Using Toggle pattern for: '" & $sElementName & "'", "VERBOSE")
 			$oTogglePattern.Toggle()
-			Debug("Element toggled via Toggle pattern.", "SUCCESS")
+			Debug("Element toggled via Toggle pattern.", "VERBOSE")
 			Return True
 		EndIf
 	EndIf
@@ -1668,7 +1701,7 @@ Func ClickByBoundingRectangle($oElement)
 	Local $tRect
 	$oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $tRect)
 	UIA_GetArrayPropertyValueAsString($tRect)
-	Debug("Element bounding rectangle: " & $tRect, "DEBUG")
+	Debug("Element bounding rectangle: " & $tRect, "VERBOSE")
 	If Not $tRect Then
 		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
 		Return False
@@ -1688,7 +1721,7 @@ Func ClickByBoundingRectangle($oElement)
 	Local $iCenterX = $iLeft + ($iWidth / 2)
 	Local $iCenterY = $iTop + ($iHeight / 2)
 
-	Debug("Using mouse click fallback at position: " & $iCenterX & "," & $iCenterY & " for: '" & $sElementName & "'", "DEBUG")
+	Debug("Using mouse click fallback at position: " & $iCenterX & "," & $iCenterY & " for: '" & $sElementName & "'", "VERBOSE")
 
 	; Ensure element is clickable before attempting
 	Local $bIsEnabled, $bIsOffscreen
@@ -1697,7 +1730,7 @@ Func ClickByBoundingRectangle($oElement)
 
 	If $bIsEnabled And Not $bIsOffscreen Then
 		MouseClick("primary", $iCenterX, $iCenterY, 1, 0)
-		Debug("Element clicked via mouse at center.", "SUCCESS")
+		Debug("Element clicked via mouse at center.", "VERBOSE")
 		Return True
 	Else
 		Debug("Element not clickable - Enabled: " & $bIsEnabled & ", Offscreen: " & $bIsOffscreen, "WARN")
@@ -1732,13 +1765,13 @@ Func _HoverElement($oElement, $iHoverTime = $HOVER_DEFAULT_MS, $SlightOffset = F
 
 	; Get element name for debugging
 	Local $sElementName = GetElementName($oElement)
-	Debug("Attempting to hover element: '" & $sElementName & "'", "DEBUG")
+	Debug("Attempting to hover element: '" & $sElementName & "'", "VERBOSE")
 
 	; Get bounding rectangle
 	Local $tRect
 	$oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $tRect)
 	UIA_GetArrayPropertyValueAsString($tRect)
-	Debug("Element bounding rectangle: " & $tRect, "DEBUG")
+	Debug("Element bounding rectangle: " & $tRect, "VERBOSE")
 	If Not $tRect Then
 		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
 		Return False
@@ -1764,16 +1797,16 @@ Func _HoverElement($oElement, $iHoverTime = $HOVER_DEFAULT_MS, $SlightOffset = F
 		Local $iOffsetY = Random(-5, -2, 1)
 		$iCenterX += $iOffsetX
 		$iCenterY += $iOffsetY
-		Debug("Applying slight offset to hover position: " & $iOffsetX & "," & $iOffsetY, "DEBUG")
+		Debug("Applying slight offset to hover position: " & $iOffsetX & "," & $iOffsetY, "VERBOSE")
 	EndIf
 
-	Debug("Hovering at: " & $iCenterX & "," & $iCenterY & " for " & $iHoverTime & "ms", "DEBUG")
+	Debug("Hovering at: " & $iCenterX & "," & $iCenterY & " for " & $iHoverTime & "ms", "VERBOSE")
 
 	; Move mouse to center of element and hold position
 	MouseMove($iCenterX, $iCenterY, 0)
 	Sleep($iHoverTime)
 
-	Debug("Hover completed on element: '" & $sElementName & "'", "SUCCESS")
+	Debug("Hover completed on element: '" & $sElementName & "'", "VERBOSE")
 	Return True
 EndFunc   ;==>_HoverElement
 
@@ -1790,13 +1823,13 @@ Func _MoveMouseToStartOfElement($oElement, $Click = False)
 
 	; Get element name for debugging
 	Local $sElementName = GetElementName($oElement)
-	Debug("Attempting to move mouse to start of element: '" & $sElementName & "'", "DEBUG")
+	Debug("Attempting to move mouse to start of element: '" & $sElementName & "'", "VERBOSE")
 
 	; Get bounding rectangle
 	Local $tRect
 	$oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $tRect)
 	UIA_GetArrayPropertyValueAsString($tRect)
-	Debug("Element bounding rectangle: " & $tRect, "DEBUG")
+	Debug("Element bounding rectangle: " & $tRect, "VERBOSE")
 	If Not $tRect Then
 		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
 		Return False
@@ -1817,16 +1850,16 @@ Func _MoveMouseToStartOfElement($oElement, $Click = False)
 	Local $iStartX = $iLeft + Random(5, 30, 1) ; Random offset from left edge
 	Local $iStartY = $iTop + ($iHeight / 2) + Random(-5, 5, 1) ; Random offset from center
 
-	Debug("Moving mouse to start position: " & $iStartX & "," & $iStartY, "DEBUG")
+	Debug("Moving mouse to start position: " & $iStartX & "," & $iStartY, "VERBOSE")
 
 	; Move mouse to start of element
 	MouseMove($iStartX, $iStartY, 0)
 	Sleep(200) ; Brief pause after move
-	Debug("Mouse moved to start of element: '" & $sElementName & "'", "SUCCESS")
+	Debug("Mouse moved to start of element: '" & $sElementName & "'", "VERBOSE")
 
 	If $Click Then
 		MouseClick("primary", $iStartX, $iStartY, 1, 0)
-		Debug("Element clicked at start position.", "SUCCESS")
+		Debug("Element clicked at start position.", "VERBOSE")
 	EndIf
 
 	Return True
@@ -1847,19 +1880,20 @@ Func _OpenHostTools()
 	If Not IsObj($oHostMenu) Then
 
 		; Controls might be hidden, show them by moving the mouse
-		Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
-		Debug("Getting Zoom window.", "DEBUG")
-		_GetZoomWindow()
-		Debug("Moving mouse to start of element: 'Zoom window'", "DEBUG")
+		Debug("Controls might be hidden. Moving mouse to show controls.", "VERBOSE")
+		Debug("Getting Zoom window.", "VERBOSE")
+		if not _GetZoomWindow() then return false
+
+		Debug("Moving mouse to start of element: 'Zoom window'", "VERBOSE")
 		_MoveMouseToStartOfElement($oZoomWindow, True)
-		Debug("Clicking Host Tools button.", "DEBUG")
+		Debug("Clicking Host Tools button.", "VERBOSE")
 
 		; Menu not open, find and click the Host Tools button
 		Local $oHostToolsButton = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oZoomWindow)
 
 		; Scenario 1: Try to find Host Tools button directly
 		If IsObj($oHostToolsButton) Then
-			Debug("Host Tools button found directly; clicking.", "DEBUG")
+			Debug("Host Tools button found directly; clicking.", "VERBOSE")
 			If Not _ClickElement($oHostToolsButton) Then
 				Debug("Failed to click Host Tools.", "ERROR")
 				Return False
@@ -1870,13 +1904,13 @@ Func _OpenHostTools()
 			EndIf
 		Else
 			; Scenario 2: Try to find More menu, then Host Tools
-			Debug("Host Tools button not found, looking for 'More' button.", "DEBUG")
+			Debug("Host Tools button not found, looking for 'More' button.", "VERBOSE")
 			Local $oMoreMenu = GetMoreMenu()
 			If IsObj($oMoreMenu) Then
 				; Now look for the Host Tools button in the More menu
 				Local $oHostToolsMenuItem = FindElementByPartialName(GetUserSetting("HostToolsValue"), Default, $oMoreMenu)
 				If IsObj($oHostToolsMenuItem) Then
-					Debug("Found Host Tools menu item. Hovering it to open submenu.", "DEBUG")
+					Debug("Found Host Tools menu item. Hovering it to open submenu.", "VERBOSE")
 					If _HoverElement($oHostToolsMenuItem, 500) Then
 						; Return the now-open host menu
 						$oHostMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
@@ -1907,21 +1941,22 @@ EndFunc   ;==>_FindHostMenuInternal
 
 ; Closes the Host Tools menu by clicking on the main window
 Func _CloseHostTools()
+	Debug(t("INFO_CLOSE_HOST_TOOLS"), "INFO")
 	_MoveMouseToStartOfElement($oZoomWindow, True) ; Click at start of window to ensure menu closes
-	Debug("Host tools menu closed.", "UIA")
 EndFunc   ;==>_CloseHostTools
 
 ; Opens the "More" menu in Zoom if available
 ; @return Object - More menu object or False if failed
 Func GetMoreMenu()
+	Debug(t("INFO_GET_MORE_MENU"), "INFO")
 	If Not IsObj($oZoomWindow) Then Return False
 
 	Local $oMoreMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
 
 	If Not IsObj($oMoreMenu) Then
 		; Menu not open, find and click the More button
-		Debug("More menu not open, attempting to open.", "DEBUG")
-		Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
+		Debug("More menu not open, attempting to open.", "VERBOSE")
+		Debug("Controls might be hidden. Moving mouse to show controls.", "VERBOSE")
 		_MoveMouseToStartOfElement($oZoomWindow)
 
 		Local $oMoreButton = FindElementByPartialName(GetUserSetting("MoreMeetingControlsValue"), Default, $oZoomWindow)
@@ -1929,7 +1964,7 @@ Func GetMoreMenu()
 			Debug("Failed to find More button.", "ERROR")
 			Return False
 		EndIf
-		Debug("Clicking More button to open menu.", "DEBUG")
+		Debug("Clicking More button to open menu.", "VERBOSE")
 		If Not _ClickElement($oMoreButton, True) Then
 			Debug("Failed to click More button.", "ERROR")
 			Return False
@@ -1956,10 +1991,11 @@ EndFunc   ;==>_FindMoreMenuInternal
 ; Opens the Participants panel in Zoom
 ; @return Object - Participants panel object or False if failed
 Func _OpenParticipantsPanel()
+	Debug(t("INFO_OPEN_PARTICIPANTS_PANEL"), "INFO")	
 	If Not IsObj($oZoomWindow) Then Return False
 
 	; Controls might be hidden, show them by moving the mouse
-	Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
+	Debug("Controls might be hidden. Moving mouse to show controls.", "VERBOSE")
 	_MoveMouseToStartOfElement($oZoomWindow)
 
 	Local $ListType[1] = [$UIA_ListControlTypeId]
@@ -1972,29 +2008,29 @@ Func _OpenParticipantsPanel()
 
 		; Scenario 1: Try to find Participants button directly
 		If IsObj($oMainParticipantsButton) Then
-			Debug("Participants button found directly; clicking.", "DEBUG")
+			Debug("Participants button found directly; clicking.", "VERBOSE")
 			If Not _ClickElement($oMainParticipantsButton) Then
 				Debug("Failed to click Participants.", "ERROR")
 				Return False
 			EndIf
 		Else
 			; Scenario 2: Try to find More menu, then Participants
-			Debug("Participants button not found, looking for 'More' button.", "DEBUG")
+			Debug("Participants button not found, looking for 'More' button.", "VERBOSE")
 			Local $oMoreMenu = GetMoreMenu()
 			If IsObj($oMoreMenu) Then
 				; Now look for the Participants button in the More menu
 				Local $oParticipantsMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oMoreMenu)
 				If IsObj($oParticipantsMenuItem) Then
-					Debug("Found Participants menu item. Hovering it to open submenu.", "DEBUG")
+					Debug("Found Participants menu item. Hovering it to open submenu.", "VERBOSE")
 					If _HoverElement($oParticipantsMenuItem, 1200) Then         ; 1.2s hover to ensure submenu appears
 						; Now look for the Participants button again in the submenu
-						Debug("Looking for Participants button again in submenu.", "DEBUG")
+						Debug("Looking for Participants button again in submenu.", "VERBOSE")
 						Local $oParticipantsSubMenuItem = FindElementByPartialName(GetUserSetting("ParticipantValue"), Default, $oZoomWindow)
 						If IsObj($oParticipantsSubMenuItem) Then
-							Debug("Final Participants button found. Clicking it.", "DEBUG")
+							Debug("Final Participants button found. Clicking it.", "VERBOSE")
 							_HoverElement($oParticipantsSubMenuItem, 500)
 							_MoveMouseToStartOfElement($oParticipantsSubMenuItem, True)
-							Debug("Participants button clicked.", "SUCCESS")
+							Debug("Participants button clicked.", "VERBOSE")
 							ResponsiveSleep(0.5) ; Move mouse to start of element and click to avoid hover issues
 						Else
 							Debug("Failed to find Participants button in submenu.", "ERROR")
@@ -2043,7 +2079,7 @@ Func _UpdateKeyboardShortcut()
 	If $g_HotkeyRegistered Then
 		HotKeySet($g_KeyboardShortcut)
 		$g_HotkeyRegistered = False
-		Debug("Previous keyboard shortcut unregistered: " & $g_KeyboardShortcut, "DEBUG")
+		Debug("Previous keyboard shortcut unregistered: " & $g_KeyboardShortcut, "VERBOSE")
 	EndIf
 
 	; Update the global keyboard shortcut variable
@@ -2055,21 +2091,21 @@ Func _UpdateKeyboardShortcut()
 		If StringRegExp($g_KeyboardShortcut, "^[\^\!\+\#]+[a-zA-Z0-9]$") Then
 			HotKeySet($g_KeyboardShortcut, "_ManualTrigger")
 			$g_HotkeyRegistered = True
-			Debug("New keyboard shortcut registered: " & $g_KeyboardShortcut, "DEBUG")
+			Debug("New keyboard shortcut registered: " & $g_KeyboardShortcut, "VERBOSE")
 		Else
 			Debug("Invalid keyboard shortcut format: " & $g_KeyboardShortcut, "ERROR")
 			$g_KeyboardShortcut = ""
 			IniWrite($CONFIG_FILE, "General", "KeyboardShortcut", "")
 		EndIf
 	Else
-		Debug("Keyboard shortcut cleared", "DEBUG")
+		Debug("Keyboard shortcut cleared", "VERBOSE")
 	EndIf
 EndFunc   ;==>_UpdateKeyboardShortcut
 
 ; Manual trigger function activated by keyboard shortcut
 ; Allows user to manually apply post-meeting settings
 Func _ManualTrigger()    ; Show message and wait for user input before applying settings
-	Debug("Manual trigger: Showing post-meeting message", "DEBUG")
+	Debug("Manual trigger: Showing post-meeting message", "VERBOSE")
 
 	; Show the post-meeting message and wait for Enter key
 	ShowOverlayMessage	('POST_MEETING_HIT_KEY')
@@ -2082,10 +2118,10 @@ Func _ManualTrigger()    ; Show message and wait for user input before applying 
 
 	; Apply settings if user pressed Enter
 	If $userInput = "ENTER" Then
-		Debug("User pressed Enter: Applying post-meeting settings", "DEBUG")
+		Debug("User pressed Enter: Applying post-meeting settings", "VERBOSE")
 		_SetPreAndPostMeetingSettings()
 	Else
-		Debug("User pressed Escape or closed dialog: Cancelling", "DEBUG")
+		Debug("User pressed Escape or closed dialog: Cancelling", "VERBOSE")
 	EndIf
 EndFunc   ;==>_ManualTrigger
 
@@ -2152,24 +2188,24 @@ EndFunc   ;==>_IsKeyPressed
 ;~ 			Local $sLabel = ""
 ;~ 			$oSetting.GetCurrentPropertyValue($UIA_NamePropertyId, $sLabel)
 
-;~ 			Debug("Element name: '" & $sLabel & "'", "DEBUG")
+;~ 			Debug("Element name: '" & $sLabel & "'", "VERBOSE")
 
 ;~ 			; Setting is enabled if label does NOT contain unchecked indicator
 ;~ 			Local $uncheckedValue = GetUserSetting("UncheckedValue")
 ;~ 			Local $sLabelLower = StringLower($sLabel)
 ;~ 			Local $uncheckedLower = StringLower($uncheckedValue)
 
-;~ 			Debug("Raw label: '" & $sLabel & "'", "DEBUG")
-;~ 			Debug("Label length: " & StringLen($sLabel), "DEBUG")
-;~ 			Debug("Unchecked value: '" & $uncheckedValue & "'", "DEBUG")
-;~ 			Debug("Unchecked length: " & StringLen($uncheckedValue), "DEBUG")
-;~ 			Debug("Label lower: '" & $sLabelLower & "'", "DEBUG")
-;~ 			Debug("Unchecked lower: '" & $uncheckedLower & "'", "DEBUG")
+;~ 			Debug("Raw label: '" & $sLabel & "'", "VERBOSE")
+;~ 			Debug("Label length: " & StringLen($sLabel), "VERBOSE")
+;~ 			Debug("Unchecked value: '" & $uncheckedValue & "'", "VERBOSE")
+;~ 			Debug("Unchecked length: " & StringLen($uncheckedValue), "VERBOSE")
+;~ 			Debug("Label lower: '" & $sLabelLower & "'", "VERBOSE")
+;~ 			Debug("Unchecked lower: '" & $uncheckedLower & "'", "VERBOSE")
 
 ;~ 			; Check if unchecked value appears anywhere in the label (not just word boundaries)
 ;~ 			$bEnabled = (StringInStr($sLabelLower, $uncheckedLower) = 0)
 
-;~ 			Debug("StringInStr result: " & StringInStr($sLabelLower, $uncheckedLower), "DEBUG")
+;~ 			Debug("StringInStr result: " & StringInStr($sLabelLower, $uncheckedLower), "VERBOSE")
 ;~ 		Else
 ;~ 			Debug(t("ERROR_SETTING_NOT_FOUND") & ": '" & $sSetting & "'", "ERROR")
 ;~ 		EndIf
@@ -2189,6 +2225,8 @@ EndFunc   ;==>_FindSecuritySettingInternal
 ; @param $sSetting - Setting name to modify
 ; @param $bDesired - Desired state (True=enabled, False=disabled)
 Func SetSecuritySetting($sSetting, $bDesired)
+	Debug(t("INFO_SETTING_SECURITY", $sSetting), "INFO")
+	ResponsiveSleep(3)
 	Local $oHostMenu = _OpenHostTools()
 	If Not IsObj($oHostMenu) Then Return False
 
@@ -2199,25 +2237,25 @@ Func SetSecuritySetting($sSetting, $bDesired)
 	Local $sLabel
 	$oSetting.GetCurrentPropertyValue($UIA_NamePropertyId, $sLabel)
 
-	Debug("Element name: '" & $sLabel & "'", "DEBUG")
+	Debug("Element name: '" & $sLabel & "'", "VERBOSE")
 
 	; Setting is enabled if label does NOT contain unchecked indicator
 	Local $uncheckedValue = GetUserSetting("UncheckedValue")
 	Local $sLabelLower = StringLower($sLabel)
 	Local $uncheckedLower = StringLower($uncheckedValue)
 
-	Debug("Raw label: '" & $sLabel & "'", "DEBUG")
-	Debug("Label length: " & StringLen($sLabel), "DEBUG")
-	Debug("Unchecked value: '" & $uncheckedValue & "'", "DEBUG")
-	Debug("Unchecked length: " & StringLen($uncheckedValue), "DEBUG")
-	Debug("Label lower: '" & $sLabelLower & "'", "DEBUG")
-	Debug("Unchecked lower: '" & $uncheckedLower & "'", "DEBUG")
+	Debug("Raw label: '" & $sLabel & "'", "VERBOSE")
+	Debug("Label length: " & StringLen($sLabel), "VERBOSE")
+	Debug("Unchecked value: '" & $uncheckedValue & "'", "VERBOSE")
+	Debug("Unchecked length: " & StringLen($uncheckedValue), "VERBOSE")
+	Debug("Label lower: '" & $sLabelLower & "'", "VERBOSE")
+	Debug("Unchecked lower: '" & $uncheckedLower & "'", "VERBOSE")
 
 	; Check if unchecked value appears anywhere in the label (not just word boundaries)
 	Local $bEnabled = (StringInStr($sLabelLower, $uncheckedLower) = 0)
 
-	Debug("StringInStr result: " & StringInStr($sLabelLower, $uncheckedLower), "DEBUG")
-	Debug("Setting '" & $sLabel & "' | Current: " & ($bEnabled ? "True" : "False") & " | Desired: " & $bDesired, "DEBUG")
+	Debug("StringInStr result: " & StringInStr($sLabelLower, $uncheckedLower), "VERBOSE")
+	Debug("Setting '" & $sLabel & "' | Current: " & ($bEnabled ? "True" : "False") & " | Desired: " & $bDesired, "VERBOSE")
 
 	; Only click if state needs to change
 	If $bEnabled <> $bDesired Then
@@ -2233,10 +2271,11 @@ EndFunc   ;==>SetSecuritySetting
 ; @param $feedType - "Video" or "Audio"
 ; @param $desiredState - True to enable, False to disable
 Func ToggleFeed($feedType, $desiredState)
+	Debug(t("INFO_TOGGLE_FEED", $feedType), "INFO")
 	Local $currentlyEnabled = False
 
 	; Controls might be hidden, show them by moving the mouse
-	Debug("Controls might be hidden. Moving mouse to show controls.", "DEBUG")
+	Debug("Controls might be hidden. Moving mouse to show controls.", "VERBOSE")
 	_MoveMouseToStartOfElement($oZoomWindow)
 
 	If $feedType = "Video" Then
@@ -2281,7 +2320,7 @@ EndFunc   ;==>ToggleFeed
 ; Mutes all meeting participants
 ; @return Boolean - True if successful, False otherwise
 Func MuteAll()
-	Debug("Attempting to 'Mute All' participants.")
+	Debug(t("INFO_MUTE_ALL"), "INFO")
 
 	; Open participants panel
 	Local $oParticipantsPanel = _OpenParticipantsPanel()
@@ -2290,7 +2329,7 @@ Func MuteAll()
 	; Find and click "Mute All" button
 	Local $oButton = FindElementByPartialName(GetUserSetting("MuteAllValue"), Default, $oZoomWindow)
 	If Not _ClickElement($oButton) Then
-		Debug("'Mute all' button not found.", "WARN")
+		Debug(t("ERROR_ELEMENT_NOT_FOUND", GetUserSetting("MuteAllValue")), "ERROR")
 		Return False
 	EndIf
 
@@ -2306,7 +2345,7 @@ Func DialogClick($ClassName, $ButtonLabel)
 	Local $oDialog = FindElementByClassName($ClassName)
 	Local $oButton = FindElementByPartialName($ButtonLabel, Default, $oDialog)
 	If _ClickElement($oButton) Then Return True
-	Debug("Button '" & $ButtonLabel & "' not found.", "WARN")
+	Debug(t("ERROR_ELEMENT_NOT_FOUND", $ButtonLabel), "ERROR")
 	Return False
 EndFunc   ;==>DialogClick
 
@@ -2341,9 +2380,9 @@ Func _LaunchZoom()
 	Debug(t("INFO_ZOOM_LAUNCHED") & ": " & $meetingID, "INFO")
 	ResponsiveSleep(10)  ; Wait for Zoom to launch
 
-	_SnapZoomWindowToSide()
+	if not _GetZoomWindow() then return false
 
-	_GetZoomWindow()
+	_SnapZoomWindowToSide()
 
 	Return IsObj($oZoomWindow)
 EndFunc   ;==>_LaunchZoom
@@ -2354,14 +2393,15 @@ EndFunc   ;==>_LaunchZoom
 ; - Turns off host audio and video
 Func _SetPreAndPostMeetingSettings()
 	Debug(t("INFO_CONFIG_BEFORE_AFTER_START"), "INFO")
-	ShowOverlayMessage('PLEASE_WAIT')
-	FocusZoomWindow()               ; Ensure Zoom window is focused
+	ResponsiveSleep(3)
+	If Not FocusZoomWindow() Then
+		Return
+	EndIf
 	SetSecuritySetting(GetUserSetting("ZoomSecurityUnmuteValue"), True)          ; Allow participants to unmute
 	SetSecuritySetting(GetUserSetting("ZoomSecurityShareScreenValue"), False)   ; Prevent screen sharing
 	ToggleFeed("Audio", False)                  ; Turn off host audio
 	ToggleFeed("Video", False)                  ; Turn off host video
 	; TODO: Unmute All function
-	HideOverlayMessage()
 	Debug(t("INFO_CONFIG_BEFORE_AFTER_DONE"), "INFO")
 EndFunc   ;==>_SetPreAndPostMeetingSettings
 
@@ -2372,14 +2412,15 @@ EndFunc   ;==>_SetPreAndPostMeetingSettings
 ; - Turns on host audio and video
 Func _SetDuringMeetingSettings()
 	Debug(t("INFO_MEETING_STARTING_SOON_CONFIG"), "INFO")
-	ShowOverlayMessage('PLEASE_WAIT')
-	FocusZoomWindow()                          ; Ensure Zoom window is focused
+	ResponsiveSleep(3)
+	If Not FocusZoomWindow() Then
+		Return
+	EndIf
 	SetSecuritySetting(GetUserSetting("ZoomSecurityUnmuteValue"), False)         ; Prevent participant self-unmute
 	SetSecuritySetting(GetUserSetting("ZoomSecurityShareScreenValue"), False)   ; Prevent screen sharing
 	MuteAll()                                   ; Mute all participants
 	ToggleFeed("Audio", True)                   ; Turn on host audio
 	ToggleFeed("Video", True)                   ; Turn on host video
-	HideOverlayMessage()
 	Debug(t("INFO_CONFIG_DURING_MEETING_DONE"), "INFO")
 EndFunc   ;==>_SetDuringMeetingSettings
 
@@ -2418,14 +2459,9 @@ Func CheckMeetingWindow($meetingTime)
 	ElseIf $nowMin = ($meetingMin - $MEETING_START_WARNING_MINUTES) Then
 		; Meeting start window (1 minute before meeting)
 		If Not $g_DuringMeetingSettingsConfigured Then
-			_GetZoomWindow()
-			Local $zoomExists = IsObj($oZoomWindow)
-			If Not $zoomExists Then
-				Debug(t("ERROR_ZOOM_WINDOW_NOT_FOUND"), "ERROR")
-			Else
-				_SetDuringMeetingSettings()
-				$g_DuringMeetingSettingsConfigured = True
-			EndIf
+			if not _GetZoomWindow() then return
+			_SetDuringMeetingSettings()
+			$g_DuringMeetingSettingsConfigured = True
 		EndIf
 
 	ElseIf $nowMin >= $meetingMin Then
@@ -2465,7 +2501,7 @@ While True
 	; Check if day has changed to reset automation flags
 	Global $today = @WDAY
 	If $today <> $previousRunDay Then
-		Debug("New day detected. Resetting configuration flags.", "DEBUG")
+		Debug("New day detected. Resetting configuration flags.", "VERBOSE")
 		$previousRunDay = $today
 		$g_PrePostSettingsConfigured = False
 		$g_DuringMeetingSettingsConfigured = False
@@ -2498,7 +2534,7 @@ Func GetElementNamesFromWindows($oZoomWindow, $oHostMenu = 0)
 	Local $aNames = []
 
 	If Not IsObj($oZoomWindow) Then
-		Debug("GetElementNamesFromWindows: Invalid Zoom window object", "DEBUG")
+		Debug("GetElementNamesFromWindows: Invalid Zoom window object", "VERBOSE")
 		Return $aNames
 	EndIf
 
@@ -2508,7 +2544,7 @@ Func GetElementNamesFromWindows($oZoomWindow, $oHostMenu = 0)
 	; Collect names from Zoom window
 	_CollectElementNames($oZoomWindow, $aControlTypes, $aNames)
 
-	Debug("Collected these values: " & $aNames & " from Zoom window", "DEBUG")
+	Debug("Collected these values: " & $aNames & " from Zoom window", "VERBOSE")
 
 	; Collect names from Host menu if provided
 	If IsObj($oHostMenu) Then
@@ -2519,7 +2555,7 @@ Func GetElementNamesFromWindows($oZoomWindow, $oHostMenu = 0)
 	$aNames = _ArrayUnique($aNames)
 	_ArraySort($aNames)
 
-	Debug("Collected " & UBound($aNames) & " unique element names", "DEBUG")
+	Debug("Collected " & UBound($aNames) & " unique element names", "VERBOSE")
 	Return $aNames
 EndFunc   ;==>GetElementNamesFromWindows
 
@@ -2611,7 +2647,7 @@ Func ShowElementNamesSelectionGUI($aNames, $callbackFunc)
 
 	GUISetState(@SW_SHOW, $g_ElementNamesSelectionGUI)
 
-	Debug("Element names selection GUI displayed with " & UBound($aNames) & " names", "DEBUG")
+	Debug("Element names selection GUI displayed with " & UBound($aNames) & " names", "VERBOSE")
 EndFunc   ;==>ShowElementNamesSelectionGUI
 
 ; Handles selection of an element name from the list
@@ -2633,7 +2669,7 @@ Func OnElementNameSelected()
 	; Close the selection GUI
 	CloseElementNamesSelectionGUI()
 
-	Debug("Element name selected: " & $selectedText, "DEBUG")
+	Debug("Element name selected: " & $selectedText, "VERBOSE")
 EndFunc   ;==>OnElementNameSelected
 
 ; Closes the element names selection GUI
@@ -2644,7 +2680,7 @@ Func CloseElementNamesSelectionGUI()
 		$g_ElementNamesSelectionList = 0
 		$g_ElementNamesSelectionResult = ""
 		$g_ElementNamesSelectionCallback = ""
-		Debug("Element names selection GUI closed", "DEBUG")
+		Debug("Element names selection GUI closed", "VERBOSE")
 	EndIf
 EndFunc   ;==>CloseElementNamesSelectionGUI
 
@@ -2696,7 +2732,7 @@ Func ShowElementNamesGUI($aNames)
 
 	GUISetState(@SW_SHOW, $g_ElementNamesGUI)
 
-	Debug("Element names GUI displayed with " & UBound($aNames) & " names", "DEBUG")
+	Debug("Element names GUI displayed with " & UBound($aNames) & " names", "VERBOSE")
 EndFunc   ;==>ShowElementNamesGUI
 
 ; Closes the element names display GUI
@@ -2705,7 +2741,7 @@ Func CloseElementNamesGUI()
 		GUIDelete($g_ElementNamesGUI)
 		$g_ElementNamesGUI = 0
 		$g_ElementNamesEdit = 0
-		Debug("Element names GUI closed", "DEBUG")
+		Debug("Element names GUI closed", "VERBOSE")
 	EndIf
 EndFunc   ;==>CloseElementNamesGUI
 
@@ -2741,27 +2777,18 @@ EndFunc   ;==>_IsMouseDown
 
 ; Button handler for "Get Element Names" button
 Func GetElementNames()
-	Debug("Get Element Names button clicked", "DEBUG")
+	Debug("Get Element Names button clicked", "VERBOSE")
 
 	; Check if Zoom meeting is in progress
 	If Not FocusZoomWindow() Then
-		; Meeting not in progress - show message
-		MsgBox($MB_OK + $MB_ICONINFORMATION, "ZoomMate", "No active Zoom meeting found. Please ensure Zoom is open and a meeting is in progress.")
-		Debug("No active Zoom meeting found", "WARN")
 		Return
 	EndIf
 
 	; Meeting is in progress - collect element names
-	Debug("Active Zoom meeting found, collecting element names...", "DEBUG")
+	Debug("Active Zoom meeting found, collecting element names...", "VERBOSE")
 
 	; Get Zoom window object
-	_GetZoomWindow()
-
-	If Not IsObj($oZoomWindow) Then
-		MsgBox($MB_OK + $MB_ICONERROR, "ZoomMate", "Failed to get Zoom window object.")
-		Debug("Failed to get Zoom window object", "DEBUG")
-		Return
-	EndIf
+	if not _GetZoomWindow() then return
 
 	; Open Host Tools menu to collect names from it too
 	Local $oHostMenu = _OpenHostTools()
@@ -2773,8 +2800,7 @@ Func GetElementNames()
 	Local $aNames = GetElementNamesFromWindows($oZoomWindow, $oHostMenu)
 
 	If UBound($aNames) = 0 Then
-		MsgBox($MB_OK + $MB_ICONWARNING, "ZoomMate", "No element names found. This might indicate an issue with the UIAutomation interface.")
-		Debug("No element names collected", "WARN")
+		Debug(t("ERROR_ELEMENT_NOT_FOUND", t("ERROR_VARIOUS_ELEMENTS")), "ERROR")
 		Return
 	EndIf
 
@@ -2786,5 +2812,5 @@ Func GetElementNames()
 		_CloseHostTools()
 	EndIf
 
-	Debug("Element names collection completed", "SUCCESS")
+	Debug("Element names collection completed", "VERBOSE")
 EndFunc   ;==>GetElementNames

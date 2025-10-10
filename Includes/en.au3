@@ -25,6 +25,13 @@ $TRANSLATIONS_EN.Add("INFO_CONFIG_DURING_MEETING_DONE", "Settings configured for
 $TRANSLATIONS_EN.Add("INFO_OUTSIDE_MEETING_WINDOW", "Outside of meeting window. Meeting started more than 2 hours ago.")
 $TRANSLATIONS_EN.Add("INFO_CONFIG_LOADED", "Configuration loaded successfully.")
 $TRANSLATIONS_EN.Add("INFO_NO_MEETING_SCHEDULED", "No meeting scheduled for today. Waiting for the next meeting day...")
+$TRANSLATIONS_EN.Add("INFO_SETTING_SECURITY", "Configuring security setting: {0}")
+$TRANSLATIONS_EN.Add("INFO_TOGGLE_FEED", "Toggling {0} feed")
+$TRANSLATIONS_EN.Add("INFO_MUTE_ALL", "Muting all participants")
+$TRANSLATIONS_EN.Add("INFO_UNMUTE_ALL", "Unmuting all participants")
+$TRANSLATIONS_EN.Add("INFO_OPEN_PARTICIPANTS_PANEL", "Opening participants panel")
+$TRANSLATIONS_EN.Add("INFO_GET_MORE_MENU", "Opening More menu")
+$TRANSLATIONS_EN.Add("INFO_CLOSE_HOST_TOOLS", "Closing Host tools menu")
 
 ; Labels
 $TRANSLATIONS_EN.Add("LABEL_MEETING_ID", "Zoom Meeting ID")
@@ -82,12 +89,12 @@ $TRANSLATIONS_EN.Add("ERROR_INVALID_ELEMENT_OBJECT", "Invalid element object.")
 $TRANSLATIONS_EN.Add("ERROR_FAILED_CLICK_ELEMENT", "Failed to click element")
 $TRANSLATIONS_EN.Add("ERROR_SETTING_NOT_FOUND", "Setting not found")
 $TRANSLATIONS_EN.Add("ERROR_UNKNOWN_FEED_TYPE", "Unknown feed type")
+$TRANSLATIONS_EN.Add("ERROR_ELEMENT_NOT_FOUND", "Element not found: {0}")
+$TRANSLATIONS_EN.Add("ERROR_VARIOUS_ELEMENTS", "Various elements")
 
 ; Overlay messages
-$TRANSLATIONS_EN.Add("PLEASE_WAIT_TITLE", "Please Wait")
-$TRANSLATIONS_EN.Add("PLEASE_WAIT_TEXT", "Please wait...")
-$TRANSLATIONS_EN.Add("POST_MEETING_HIT_KEY_TITLE", "Post-Meeting Settings")
-$TRANSLATIONS_EN.Add("POST_MEETING_HIT_KEY_TEXT", "Are you ready to apply post-meeting settings? Press ENTER when the prayer is over to apply them, or ESC to cancel.")
+$TRANSLATIONS_EN.Add("PLEASE_WAIT", "Please wait...")
+$TRANSLATIONS_EN.Add("POST_MEETING_HIT_KEY", "Are you ready to apply post-meeting settings? Press ENTER when the prayer is over to apply them, or ESC to cancel.")
 
 ; Section headers
 $TRANSLATIONS_EN.Add("SECTION_MEETING_INFO", "Meeting Information")
