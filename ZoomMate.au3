@@ -9,14 +9,7 @@
 ; COMPILER DIRECTIVES AND INCLUDES
 ; ================================================================================================
 #AutoIt3Wrapper_UseX64=y
-#AutoIt3Wrapper_Res_File_Add=images\host_tools.jpg, rt_rcdata, host_tools_jpg
-#AutoIt3Wrapper_Res_File_Add=images\more_meeting_controls.jpg, rt_rcdata, more_meeting_controls_jpg
-#AutoIt3Wrapper_Res_File_Add=images\participant.jpg, rt_rcdata, participant_jpg
-#AutoIt3Wrapper_Res_File_Add=images\mute_all.jpg, rt_rcdata, mute_all_jpg
-#AutoIt3Wrapper_Res_File_Add=images\yes.jpg, rt_rcdata, yes_jpg
-#AutoIt3Wrapper_Res_File_Add=images\security_unmute.jpg, rt_rcdata, security_unmute_jpg
-#AutoIt3Wrapper_Res_File_Add=images\security_share_screen.jpg, rt_rcdata, security_share_screen_jpg
-#AutoIt3Wrapper_Res_File_Add=images\placeholder.jpg, rt_rcdata, placeholder_jpg
+#include <MsgBoxConstants.au3>
 #include <MsgBoxConstants.au3>
 #include <Array.au3>
 #include <FileConstants.au3>
@@ -27,10 +20,24 @@
 #include <GUIConstantsEx.au3>
 #include <WindowsStylesConstants.au3>
 #include <StaticConstants.au3>
+#include <GDIPlus.au3>
 #include <WinAPI.au3>
 #include <EditConstants.au3>
+#include <File.au3>
 #include "Includes\UIA_Functions-a.au3"
 #include "Includes\CUIAutomation2.au3"
+
+; ================================================================================================
+; FILE INSTALLATION - Extract embedded images to script directory
+; ================================================================================================
+FileInstall("images\host_tools.jpg", @ScriptDir & "\images\host_tools.jpg", 1)
+FileInstall("images\more_meeting_controls.jpg", @ScriptDir & "\images\more_meeting_controls.jpg", 1)
+FileInstall("images\participant.jpg", @ScriptDir & "\images\participant.jpg", 1)
+FileInstall("images\mute_all.jpg", @ScriptDir & "\images\mute_all.jpg", 1)
+FileInstall("images\yes.jpg", @ScriptDir & "\images\yes.jpg", 1)
+FileInstall("images\security_unmute.jpg", @ScriptDir & "\images\security_unmute.jpg", 1)
+FileInstall("images\security_share_screen.jpg", @ScriptDir & "\images\security_share_screen.jpg", 1)
+FileInstall("images\placeholder.jpg", @ScriptDir & "\images\placeholder.jpg", 1)
 #include "Includes\i18n.au3"
 
 ; ================================================================================================
@@ -96,6 +103,7 @@ Global $g_ElementNamesSelectionList = 0            ; Handle for element names se
 Global $g_ElementNamesSelectionResult = ""         ; Selected element name result
 Global $g_ElementNamesSelectionCallback = ""       ; Callback function for selection
 Global $g_ActiveFieldForLookup = 0                 ; Currently active field for lookup operations
+Global $g_FieldLabels = ObjCreate("Scripting.Dictionary")  ; Maps field names to label control IDs
 
 ; Day mapping containers for internationalization
 Global $g_DayLabelToNum = ObjCreate("Scripting.Dictionary")    ; Day name -> number (1-7)
@@ -394,7 +402,8 @@ Func ShowConfigGUI()
 	; ================================================================================================
 	; SECTION 1: MEETING INFORMATION
 	; ================================================================================================
-	_AddSectionHeader(t("SECTION_MEETING_INFO"), 10, $currentY)
+	Local $idSection1 = _AddSectionHeader(t("SECTION_MEETING_INFO"), 10, $currentY)
+	If Not $g_FieldLabels.Exists("Section1") Then $g_FieldLabels.Add("Section1", $idSection1)
 	$currentY += 25
 
 	; Meeting configuration fields
@@ -421,7 +430,8 @@ Func ShowConfigGUI()
 	; ================================================================================================
 	; SECTION 2: ZOOM INTERFACE LABELS
 	; ================================================================================================
-	_AddSectionHeader(t("SECTION_ZOOM_LABELS"), 10, $currentY)
+	Local $idSection2 = _AddSectionHeader(t("SECTION_ZOOM_LABELS"), 10, $currentY)
+	If Not $g_FieldLabels.Exists("Section2") Then $g_FieldLabels.Add("Section2", $idSection2)
 	$currentY += 25
 
 	; Zoom UI element text values (for internationalization support)
@@ -458,12 +468,14 @@ Func ShowConfigGUI()
 	; ================================================================================================
 	; SECTION 3: GENERAL SETTINGS
 	; ================================================================================================
-	_AddSectionHeader(t("SECTION_GENERAL_SETTINGS"), 10, $currentY)
+	Local $idSection3 = _AddSectionHeader(t("SECTION_GENERAL_SETTINGS"), 10, $currentY)
+	If Not $g_FieldLabels.Exists("Section3") Then $g_FieldLabels.Add("Section3", $idSection3)
 	$currentY += 25
 
 	; Language selection dropdown
-	GUICtrlCreateLabel(t("LABEL_LANGUAGE"), 10, $currentY, 120, 20)
-	$idLanguagePicker = GUICtrlCreateCombo("", 140, $currentY, 200, 20)
+	Local $idLanguageLabel = GUICtrlCreateLabel(t("LABEL_LANGUAGE"), 10, $currentY, 200, 20)
+	$idLanguagePicker = GUICtrlCreateCombo("", 300, $currentY, 200, 20)
+	If Not $g_FieldLabels.Exists("Language") Then $g_FieldLabels.Add("Language", $idLanguageLabel)
 	; Ensure translations are initialized before getting language list
 	If $translations.Count = 0 Then _InitializeTranslations()
 	Local $langList = _ListAvailableLanguageNames()
@@ -471,11 +483,13 @@ Func ShowConfigGUI()
 	If $currentLang = "" Then $currentLang = "en"
 	Local $currentDisplay = _GetLanguageDisplayName($currentLang)
 	GUICtrlSetData($idLanguagePicker, $langList, $currentDisplay)
+	GUICtrlSetOnEvent($idLanguagePicker, "_OnLanguageChanged") ; Handle language change
 	$currentY += 30
 
 	; Snap Zoom to side (Disabled|Left|Right)
-	GUICtrlCreateLabel(t("LABEL_SNAP_ZOOM_TO"), 10, $currentY, 120, 20)
-	Local $idSnapZoom = GUICtrlCreateCombo("", 140, $currentY, 200, 20)
+	Local $idSnapLabel = GUICtrlCreateLabel(t("LABEL_SNAP_ZOOM_TO"), 10, $currentY, 200, 20)
+	Global $idSnapZoom = GUICtrlCreateCombo("", 300, $currentY, 200, 20)
+	If Not $g_FieldLabels.Exists("SnapZoomSide") Then $g_FieldLabels.Add("SnapZoomSide", $idSnapLabel)
 	Local $snapVal = GetUserSetting("SnapZoomSide")
 	Local $snapDisplay = t("SNAP_DISABLED")
 	If $snapVal = "Left" Then
@@ -497,8 +511,8 @@ Func ShowConfigGUI()
 	$currentY += 30
 
 	; Action buttons (adjusted for wider GUI)
-	$idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 10, $currentY, 100, 30)
-	Local $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 120, $currentY, 100, 30)
+	Global $idSaveBtn = GUICtrlCreateButton(t("BTN_SAVE"), 10, $currentY, 100, 30)
+	Global $idQuitBtn = GUICtrlCreateButton(t("BTN_QUIT"), 120, $currentY, 100, 30)
 	$currentY += 30
 
 
@@ -533,6 +547,221 @@ Func ShowConfigGUI()
 	; Shows a "Please Wait" message dialog during long operations
 	GUIRegisterMsg($WM_COMMAND, "_WM_COMMAND_EditChange")
 EndFunc   ;==>ShowConfigGUI
+
+; Helper function to return the maximum of two values
+; @param $a - First value
+; @param $b - Second value
+; @return The maximum of the two values
+Func _Max($a, $b)
+	if $a = "" Then Return $b
+	if $b = "" Then Return $a
+	if $a = "" And $b = "" Then Return ""
+	if Not IsNumber($a) Then Return $b
+	if Not IsNumber($b) Then Return $a
+	Return ($a > $b) ? $a : $b
+EndFunc
+
+; Immediately saves a specific field value to settings and INI file
+; @param $key - Settings key name
+; @param $value - Value to save
+Func SaveFieldImmediately($key, $value)
+	; Save to in-memory settings
+	$g_UserSettings.Add($key, $value)
+
+	; Save to INI file
+	IniWrite($CONFIG_FILE, _GetIniSectionForKey($key), $key, _StringToUTF8($value))
+
+	Debug("Immediately saved field " & $key & " with value: " & $value, "VERBOSE")
+EndFunc   ;==>SaveFieldImmediately
+
+; Handler for immediate saving of specific fields when they change
+Func _OnImmediateSaveFieldChange()
+	Local $idChanged = @GUI_CtrlId
+
+	; Check if this is one of the fields that should save immediately
+	If $idChanged = $g_FieldCtrls.Item("HostToolsValue") Or $idChanged = $g_FieldCtrls.Item("MoreMeetingControlsValue") Then
+		Local $fieldKey = ""
+		For $sKey In $g_FieldCtrls.Keys
+			If $g_FieldCtrls.Item($sKey) = $idChanged Then
+				$fieldKey = $sKey
+				ExitLoop
+			EndIf
+		Next
+
+		If $fieldKey <> "" Then
+			Local $value = StringStripWS(GUICtrlRead($idChanged), 3)
+			If $value <> "" Then
+				SaveFieldImmediately($fieldKey, $value)
+				Debug("Immediately saved " & $fieldKey & " with value: " & $value, "VERBOSE")
+			EndIf
+		EndIf
+	EndIf
+	
+EndFunc   ;==>_OnImmediateSaveFieldChange
+
+; Handler for when language selection changes - refreshes all GUI labels immediately
+Func _OnLanguageChanged()
+	Local $selDisplay = GUICtrlRead($idLanguagePicker)
+	Local $selLang = _GetLanguageCodeFromDisplayName($selDisplay)
+	If $selLang = "" Then $selLang = "en"  ; Fallback to English if not found
+
+	; Update current language setting
+	$g_UserSettings.Item("Language") = $selLang
+	IniWrite($CONFIG_FILE, "General", "Language", _StringToUTF8($selLang))
+	$g_CurrentLang = $selLang
+
+	; Refresh day labels for new language
+	_InitDayLabelMaps()
+
+	; Refresh all GUI labels and field values
+	_RefreshGUILabels()
+	
+EndFunc   ;==>_OnLanguageChanged
+
+; Refreshes all GUI labels and field values when language changes
+Func _RefreshGUILabels()
+	If $g_ConfigGUI = 0 Then Return
+
+	; Update window title
+	WinSetTitle($g_ConfigGUI, "", t("CONFIG_TITLE"))
+
+	; Update section headers (we need to find them by position or recreate)
+	; For now, we'll focus on updating the key controls we can identify
+
+	; Update language picker data with new language list
+	Local $langList = _ListAvailableLanguageNames()
+	Local $currentDisplay = _GetLanguageDisplayName($g_CurrentLang)
+	GUICtrlSetData($idLanguagePicker, $langList, $currentDisplay)
+
+	; Update snap zoom combo box data
+	Local $snapVal = GetUserSetting("SnapZoomSide")
+	Local $snapDisplay = t("SNAP_DISABLED")
+	If $snapVal = "Left" Then
+		$snapDisplay = t("SNAP_LEFT")
+	ElseIf $snapVal = "Right" Then
+		$snapDisplay = t("SNAP_RIGHT")
+	EndIf
+	GUICtrlSetData($idSnapZoom, t("SNAP_DISABLED") & "|" & t("SNAP_LEFT") & "|" & t("SNAP_RIGHT"), $snapDisplay)
+
+	; Update button labels
+	GUICtrlSetData($idSaveBtn, t("BTN_SAVE"))
+	GUICtrlSetData($idQuitBtn, t("BTN_QUIT"))
+
+	; Update day dropdowns with new language labels
+	_RefreshDayDropdowns()
+
+	; Update field labels for text inputs (this is more complex, would need to track label IDs)
+	; For now, we'll update the main visible ones
+
+	; Update field labels using the stored label control IDs
+	For $sKey In $g_FieldLabels.Keys
+		Local $labelCtrl = $g_FieldLabels.Item($sKey)
+		If $labelCtrl <> 0 Then
+			; For now, we'll update specific known labels
+			Switch $sKey
+				Case "MeetingID"
+					GUICtrlSetData($labelCtrl, t("LABEL_MEETING_ID"))
+				Case "MidweekDay"
+					GUICtrlSetData($labelCtrl, t("LABEL_MIDWEEK_DAY"))
+				Case "MidweekTime"
+					GUICtrlSetData($labelCtrl, t("LABEL_MIDWEEK_TIME"))
+				Case "WeekendDay"
+					GUICtrlSetData($labelCtrl, t("LABEL_WEEKEND_DAY"))
+				Case "WeekendTime"
+					GUICtrlSetData($labelCtrl, t("LABEL_WEEKEND_TIME"))
+				Case "HostToolsValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_HOST_TOOLS"))
+				Case "MoreMeetingControlsValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_MORE_MEETING_CONTROLS"))
+				Case "ParticipantValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_PARTICIPANT"))
+				Case "MuteAllValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_MUTE_ALL"))
+				Case "YesValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_YES"))
+				Case "UncheckedValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_UNCHECKED_VALUE"))
+				Case "CurrentlyUnmutedValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_CURRENTLY_UNMUTED_VALUE"))
+				Case "UnmuteAudioValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_UNMUTE_AUDIO_VALUE"))
+				Case "StopVideoValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_STOP_VIDEO_VALUE"))
+				Case "StartVideoValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_START_VIDEO_VALUE"))
+				Case "ZoomSecurityUnmuteValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_ZOOM_SECURITY_UNMUTE"))
+				Case "ZoomSecurityShareScreenValue"
+					GUICtrlSetData($labelCtrl, t("LABEL_ZOOM_SECURITY_SHARE_SCREEN"))
+				Case "KeyboardShortcut"
+					GUICtrlSetData($labelCtrl, t("LABEL_KEYBOARD_SHORTCUT"))
+				Case "Language"
+					GUICtrlSetData($labelCtrl, t("LABEL_LANGUAGE"))
+				Case "SnapZoomSide"
+					GUICtrlSetData($labelCtrl, t("LABEL_SNAP_ZOOM_TO"))
+				Case "Section1"
+					GUICtrlSetData($labelCtrl, t("SECTION_MEETING_INFO"))
+				Case "Section2"
+					GUICtrlSetData($labelCtrl, t("SECTION_ZOOM_LABELS"))
+				Case "Section3"
+					GUICtrlSetData($labelCtrl, t("SECTION_GENERAL_SETTINGS"))
+			EndSwitch
+		EndIf
+	Next
+
+	; Clear and rebuild error area
+	If $g_ErrorAreaLabel <> 0 Then
+		GUICtrlSetData($g_ErrorAreaLabel, "")
+	EndIf
+
+	; Re-run validation to update any error messages and button states
+	CheckConfigFields()
+	
+EndFunc   ;==>_RefreshGUILabels
+
+; Refreshes day dropdown controls with new language labels
+Func _RefreshDayDropdowns()
+	; Update MidweekDay dropdown
+	Local $midweekCtrl = $g_FieldCtrls.Item("MidweekDay")
+	If $midweekCtrl <> 0 Then
+		Local $currentMidweekNum = String(GetUserSetting("MidweekDay"))
+		Local $currentMidweekLabel = $currentMidweekNum
+		If $g_DayNumToLabel.Exists($currentMidweekNum) Then
+			$currentMidweekLabel = $g_DayNumToLabel.Item($currentMidweekNum)
+		EndIf
+
+		Local $dayList = ""
+		For $i = 2 To 7  ; Monday through Saturday
+			Local $lbl = t("DAY_" & $i)
+			$dayList &= ($dayList = "" ? $lbl : "|" & $lbl)
+		Next
+		Local $lblSun = t("DAY_" & 1)  ; Sunday last
+		$dayList &= ($dayList = "" ? $lblSun : "|" & $lblSun)
+
+		GUICtrlSetData($midweekCtrl, $dayList, $currentMidweekLabel)
+	EndIf
+
+	; Update WeekendDay dropdown
+	Local $weekendCtrl = $g_FieldCtrls.Item("WeekendDay")
+	If $weekendCtrl <> 0 Then
+		Local $currentWeekendNum = String(GetUserSetting("WeekendDay"))
+		Local $currentWeekendLabel = $currentWeekendNum
+		If $g_DayNumToLabel.Exists($currentWeekendNum) Then
+			$currentWeekendLabel = $g_DayNumToLabel.Item($currentWeekendNum)
+		EndIf
+
+		Local $dayList = ""
+		For $i = 2 To 7  ; Monday through Saturday
+			Local $lbl = t("DAY_" & $i)
+			$dayList &= ($dayList = "" ? $lbl : "|" & $lbl)
+		Next
+		Local $lblSun = t("DAY_" & 1)  ; Sunday last
+		$dayList &= ($dayList = "" ? $lblSun : "|" & $lblSun)
+
+		GUICtrlSetData($weekendCtrl, $dayList, $currentWeekendLabel)
+	EndIf
+EndFunc   ;==>_RefreshDayDropdowns
+
 
 ; Helper function to add a section header with styling
 ; @param $text - Header text to display
@@ -649,9 +878,10 @@ EndFunc   ;==>_GetOverlayMessageLabelControl
 ; @param $xInput,$yInput - Input position
 ; @param $wInput - Input width
 Func _AddTextInputField($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput)
-	GUICtrlCreateLabel($label, $xLabel, $yLabel, 180, 20)
+	Local $idLabel = GUICtrlCreateLabel($label, $xLabel, $yLabel, 180, 20)
 	Local $idInput = GUICtrlCreateInput(GetUserSetting($key), $xInput, $yInput, $wInput, 20)
 	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
+	If Not $g_FieldLabels.Exists($key) Then $g_FieldLabels.Add($key, $idLabel)
 	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
 EndFunc   ;==>_AddTextInputField
 
@@ -664,36 +894,60 @@ EndFunc   ;==>_AddTextInputField
 ; @param $explainKey - Translation key for explanation text
 ; @param $imageName - Image filename for tooltip
 Func _AddTextInputFieldWithTooltip($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput, $explainKey, $imageName)
-	GUICtrlCreateLabel($label, $xLabel, $yLabel, 200, 20)
+	Local $idLabel = GUICtrlCreateLabel($label, $xLabel, $yLabel, 200, 20)
 
-	; Create info icon label (using Unicode info symbol)
-	Local $idInfoIcon = GUICtrlCreateLabel("[?]", $xLabel + 205, $yLabel, 20, 20)
-	GUICtrlSetColor($idInfoIcon, 0x0066CC) ; Blue color
-	GUICtrlSetFont($idInfoIcon, 10, 700) ; Bold
-	GUICtrlSetCursor($idInfoIcon, 0) ; Hand cursor
+	; Only create info icon if an image name is provided
+	If $imageName <> "" Then
+		; Build tooltip text with explanation and image reference
+		Local $tooltipText = t($explainKey)
+		Local $imagePath = @ScriptDir & "\images\" & $imageName
 
-	; Build tooltip text with explanation and image reference
-	Local $tooltipText = t($explainKey)
-	Local $imagePath = @ScriptDir & "\images\" & $imageName
+		; Check if image exists, if not use placeholder path
+		If Not FileExists($imagePath) Then
+			$imagePath = @ScriptDir & "\images\placeholder.jpg"
+		EndIf
 
-	; Check if image exists, if not use placeholder path
-	If Not FileExists($imagePath) Then
-		$imagePath = @ScriptDir & "\images\placeholder.jpg"
+		; Get image dimensions for proper sizing
+		Local $iImageWidth = 20, $iImageHeight = 20 ; Default fallback
+		If FileExists($imagePath) Then
+			_GDIPlus_Startup()
+			Local $hImage = _GDIPlus_ImageLoadFromFile($imagePath)
+			If $hImage <> 0 Then
+				$iImageWidth = _GDIPlus_ImageGetWidth($hImage)
+				$iImageHeight = _GDIPlus_ImageGetHeight($hImage)
+				_GDIPlus_ImageDispose($hImage)
+
+				; Scale down if too large (max 40px for icon)
+				If $iImageWidth > 40 Or $iImageHeight > 40 Then
+					Local $scale = 40 / _Max($iImageWidth, $iImageHeight)
+					$iImageWidth *= $scale
+					$iImageHeight *= $scale
+				EndIf
+			EndIf
+			_GDIPlus_Shutdown()
+		EndIf
+
+		; Create info icon label with dynamic size
+		Local $idInfoIcon = GUICtrlCreateLabel("[?]", $xLabel + 205, $yLabel, $iImageWidth, $iImageHeight)
+		GUICtrlSetColor($idInfoIcon, 0x0066CC) ; Blue color
+		GUICtrlSetFont($idInfoIcon, 10, 700) ; Bold
+		GUICtrlSetCursor($idInfoIcon, 0) ; Hand cursor
+
+		; Set standard tooltip with explanation text only
+		GUICtrlSetTip($idInfoIcon, $tooltipText)
+
+		; Store image path for custom tooltip display on click
+		If Not $g_InfoIconData.Exists($idInfoIcon) Then
+			$g_InfoIconData.Add($idInfoIcon, $imagePath)
+		EndIf
+
+		; Set click event to show image tooltip
+		GUICtrlSetOnEvent($idInfoIcon, "_ShowImageTooltip")
 	EndIf
-
-	; Set standard tooltip with explanation text only
-	GUICtrlSetTip($idInfoIcon, $tooltipText)
-
-	; Store image path for custom tooltip display on click
-	If Not $g_InfoIconData.Exists($idInfoIcon) Then
-		$g_InfoIconData.Add($idInfoIcon, $imagePath)
-	EndIf
-
-	; Set click event to show image tooltip
-	GUICtrlSetOnEvent($idInfoIcon, "_ShowImageTooltip")
 
 	Local $idInput = GUICtrlCreateInput(GetUserSetting($key), $xInput, $yInput, $wInput, 20)
 	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
+	If Not $g_FieldLabels.Exists($key) Then $g_FieldLabels.Add($key, $idLabel)
 	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
 EndFunc   ;==>_AddTextInputFieldWithTooltip
 
@@ -706,39 +960,68 @@ EndFunc   ;==>_AddTextInputFieldWithTooltip
 ; @param $explainKey - Translation key for explanation text
 ; @param $imageName - Image filename for tooltip
 Func _AddTextInputFieldWithTooltipAndLookup($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput, $explainKey, $imageName)
-	GUICtrlCreateLabel($label, $xLabel, $yLabel, 200, 20)
+	Local $idLabel = GUICtrlCreateLabel($label, $xLabel, $yLabel, 200, 20)
 
-	; Create info icon label (using Unicode info symbol)
-	Local $idInfoIcon = GUICtrlCreateLabel("[?]", $xLabel + 205, $yLabel, 20, 20)
-	GUICtrlSetColor($idInfoIcon, 0x0066CC) ; Blue color
-	GUICtrlSetFont($idInfoIcon, 10, 700) ; Bold
-	GUICtrlSetCursor($idInfoIcon, 0) ; Hand cursor
+	; Only create info icon if an image name is provided
+	If $imageName <> "" Then
+		; Build tooltip text with explanation and image reference
+		Local $tooltipText = t($explainKey)
+		Local $imagePath = @ScriptDir & "\images\" & $imageName
 
-	; Build tooltip text with explanation and image reference
-	Local $tooltipText = t($explainKey)
-	Local $imagePath = @ScriptDir & "\images\" & $imageName
+		; Check if image exists, if not use placeholder path
+		If Not FileExists($imagePath) Then
+			$imagePath = @ScriptDir & "\images\placeholder.jpg"
+		EndIf
 
-	; Check if image exists, if not use placeholder path
-	If Not FileExists($imagePath) Then
-		$imagePath = @ScriptDir & "\images\placeholder.jpg"
+		; Get image dimensions for proper sizing
+		Local $iImageWidth = 20, $iImageHeight = 20 ; Default fallback
+		If FileExists($imagePath) Then
+			_GDIPlus_Startup()
+			Local $hImage = _GDIPlus_ImageLoadFromFile($imagePath)
+			If $hImage <> 0 Then
+				$iImageWidth = _GDIPlus_ImageGetWidth($hImage)
+				$iImageHeight = _GDIPlus_ImageGetHeight($hImage)
+				_GDIPlus_ImageDispose($hImage)
+
+				; Scale down if too large (max 40px for icon)
+				If $iImageWidth > 40 Or $iImageHeight > 40 Then
+					Local $scale = 40 / _Max($iImageWidth, $iImageHeight)
+					$iImageWidth *= $scale
+					$iImageHeight *= $scale
+				EndIf
+			EndIf
+			_GDIPlus_Shutdown()
+		EndIf
+
+		; Create info icon label with dynamic size
+		Local $idInfoIcon = GUICtrlCreateLabel("[?]", $xLabel + 205, $yLabel, $iImageWidth, $iImageHeight)
+		GUICtrlSetColor($idInfoIcon, 0x0066CC) ; Blue color
+		GUICtrlSetFont($idInfoIcon, 10, 700) ; Bold
+		GUICtrlSetCursor($idInfoIcon, 0) ; Hand cursor
+
+		; Set standard tooltip with explanation text only
+		GUICtrlSetTip($idInfoIcon, $tooltipText)
+
+		; Store image path for custom tooltip display on click
+		If Not $g_InfoIconData.Exists($idInfoIcon) Then
+			$g_InfoIconData.Add($idInfoIcon, $imagePath)
+		EndIf
+
+		; Set click event to show image tooltip
+		GUICtrlSetOnEvent($idInfoIcon, "_ShowImageTooltip")
 	EndIf
-
-	; Set standard tooltip with explanation text only
-	GUICtrlSetTip($idInfoIcon, $tooltipText)
-
-	; Store image path for custom tooltip display on click
-	If Not $g_InfoIconData.Exists($idInfoIcon) Then
-		$g_InfoIconData.Add($idInfoIcon, $imagePath)
-	EndIf
-
-	; Set click event to show image tooltip
-	GUICtrlSetOnEvent($idInfoIcon, "_ShowImageTooltip")
 
 	; Create text input field (slightly smaller width to make room for lookup button)
 	Local $idInput = GUICtrlCreateInput(GetUserSetting($key), $xInput, $yInput, $wInput - 35, 20)
 	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idInput)
+	If Not $g_FieldLabels.Exists($key) Then $g_FieldLabels.Add($key, $idLabel)
 	GUICtrlSetOnEvent($idInput, "CheckConfigFields")
 	GUICtrlSetOnEvent($idInput, "_OnFieldFocus") ; Track when field gets focus
+
+	; For HostToolsValue and MoreMeetingControlsValue, add immediate save functionality
+	If $key = "HostToolsValue" Or $key = "MoreMeetingControlsValue" Then
+		GUICtrlSetOnEvent($idInput, "_OnImmediateSaveFieldChange")
+	EndIf
 
 	_CreateLookupButton($xInput, $yInput, $wInput, $idInput)
 EndFunc   ;==>_AddTextInputFieldWithTooltipAndLookup
@@ -847,7 +1130,7 @@ EndFunc   ;==>OnFieldElementSelected
 ; @param $xInput,$yInput - Input position
 ; @param $wInput - Input width
 Func _AddDayDropdownField($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wInput)
-	GUICtrlCreateLabel($label, $xLabel, $yLabel, 180, 20)
+	Local $idLabel = GUICtrlCreateLabel($label, $xLabel, $yLabel, 180, 20)
 
 	; Build day list (Monday-Saturday, then Sunday for better UI flow)
 	Local $dayList = ""
@@ -874,6 +1157,7 @@ Func _AddDayDropdownField($key, $label, $xLabel, $yLabel, $xInput, $yInput, $wIn
 	Local $idCombo = GUICtrlCreateCombo("", $xInput, $yInput, $wInput, 20)
 	GUICtrlSetData($idCombo, $dayList, $currentLabel)
 	If Not $g_FieldCtrls.Exists($key) Then $g_FieldCtrls.Add($key, $idCombo)
+	If Not $g_FieldLabels.Exists($key) Then $g_FieldLabels.Add($key, $idLabel)
 	GUICtrlSetOnEvent($idCombo, "CheckConfigFields")
 EndFunc   ;==>_AddDayDropdownField
 
@@ -1060,7 +1344,7 @@ Func SaveConfigGUI()
 	Local $selDisplay = GUICtrlRead($idLanguagePicker)
 	Local $selLang = _GetLanguageCodeFromDisplayName($selDisplay)
 	If $selLang = "" Then $selLang = "en"  ; Fallback to English if not found
-	$g_UserSettings.Add("Language", $selLang)
+	$g_UserSettings.Item("Language") = $selLang
 	IniWrite($CONFIG_FILE, "General", "Language", _StringToUTF8($selLang))
 	$g_CurrentLang = $selLang
 
@@ -1099,9 +1383,29 @@ Func _ShowImageTooltip()
 	; Close any existing tooltip
 	_CloseImageTooltip()
 
-	; Create tooltip window with image
-	Local $iW = 220
-	Local $iH = 170
+	; Get image dimensions for proper tooltip sizing
+	Local $iImageWidth = 200, $iImageHeight = 150 ; Default fallback
+	If FileExists($imagePath) Then
+		_GDIPlus_Startup()
+		Local $hImage = _GDIPlus_ImageLoadFromFile($imagePath)
+		If $hImage <> 0 Then
+			$iImageWidth = _GDIPlus_ImageGetWidth($hImage)
+			$iImageHeight = _GDIPlus_ImageGetHeight($hImage)
+			_GDIPlus_ImageDispose($hImage)
+
+			; Scale down if too large (max 300px for tooltip)
+			If $iImageWidth > 300 Or $iImageHeight > 200 Then
+				Local $scale = 300 / _Max($iImageWidth, $iImageHeight)
+				$iImageWidth *= $scale
+				$iImageHeight *= $scale
+			EndIf
+		EndIf
+		_GDIPlus_Shutdown()
+	EndIf
+
+	; Create tooltip window with dynamic size based on image
+	Local $iW = $iImageWidth + 20 ; Add padding
+	Local $iH = $iImageHeight + 20 ; Add padding
 	Local $mousePos = MouseGetPos()
 	Local $iX = $mousePos[0] + 10
 	Local $iY = $mousePos[1] + 10
@@ -1113,21 +1417,18 @@ Func _ShowImageTooltip()
 	$g_TooltipGUI = GUICreate("", $iW, $iH, $iX, $iY, $WS_POPUP, $WS_EX_TOPMOST)
 	GUISetBkColor(0xFFFFE1, $g_TooltipGUI) ; Light yellow background
 
-	Debug($imagePath)
-	Debug(FileExists($imagePath))
-
 	; Add image if it exists
 	If FileExists($imagePath) Then
-		GUICtrlCreatePic($imagePath, 10, 10, 200, 150)
+		GUICtrlCreatePic($imagePath, 10, 10, $iImageWidth, $iImageHeight)
 	Else
-		GUICtrlCreateLabel("Image not found:", 10, 10, 200, 20)
-		GUICtrlCreateLabel($imagePath, 10, 35, 200, 100)
+		GUICtrlCreateLabel("Image not found:", 10, 10, $iImageWidth, 20)
+		GUICtrlCreateLabel($imagePath, 10, 35, $iImageWidth, $iImageHeight - 25)
 	EndIf
 
 	GUISetState(@SW_SHOW, $g_TooltipGUI)
 
 	; Auto-close after 5 seconds or when clicking anywhere
-	AdlibRegister("_CloseImageTooltip", 3000)
+	AdlibRegister("_CloseImageTooltip", 5000)
 EndFunc   ;==>_ShowImageTooltip
 
 ; Closes the custom image tooltip window
