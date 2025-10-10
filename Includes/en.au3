@@ -91,6 +91,8 @@ $TRANSLATIONS_EN.Add("ERROR_SETTING_NOT_FOUND", "Setting not found")
 $TRANSLATIONS_EN.Add("ERROR_UNKNOWN_FEED_TYPE", "Unknown feed type")
 $TRANSLATIONS_EN.Add("ERROR_ELEMENT_NOT_FOUND", "Element not found: {0}")
 $TRANSLATIONS_EN.Add("ERROR_VARIOUS_ELEMENTS", "Various elements")
+$TRANSLATIONS_EN.Add("ERROR_INVALID_SNAP_SELECTION", "Invalid snap selection: {0}")
+$TRANSLATIONS_EN.Add("ERROR_FAILED_OPEN_PANEL", "Failed to open panel: {0}")
 
 ; Overlay messages
 $TRANSLATIONS_EN.Add("PLEASE_WAIT", "Please wait...")

@@ -298,9 +298,8 @@ Func LoadMeetingConfig()
 		WEnd
 	Else
 		Debug(t("INFO_CONFIG_LOADED"), "INFO")
-		; print meeting schedule for verification
-		Debug("Midweek Meeting: " & t("DAY_" & GetUserSetting("MidweekDay")) & " at " & GetUserSetting("MidweekTime"), "INFO", True)
-		Debug("Weekend Meeting: " & t("DAY_" & GetUserSetting("WeekendDay")) & " at " & GetUserSetting("WeekendTime"), "INFO", True)
+		Debug("Midweek Meeting: " & t("DAY_" & GetUserSetting("MidweekDay")) & " at " & GetUserSetting("MidweekTime"), "VERBOSE", True)
+		Debug("Weekend Meeting: " & t("DAY_" & GetUserSetting("WeekendDay")) & " at " & GetUserSetting("WeekendTime"), "VERBOSE", True)
 	EndIf
 EndFunc   ;==>LoadMeetingConfig
 
@@ -1265,7 +1264,7 @@ EndFunc   ;==>_FindZoomWindowInternal
 ; Focuses the main Zoom meeting window
 ; @return Boolean - True if successful, False otherwise
 Func FocusZoomWindow()
-	Debug("Focusing Zoom window...", "INFO")
+	Debug("Focusing Zoom window...", "VERBOSE")
 	Local $oZoomWindow = _GetZoomWindow()
 	If Not IsObj($oZoomWindow) Then Return False
 
@@ -1362,7 +1361,7 @@ Func _SnapZoomWindowToSide()
 		Send("#{RIGHT}") ; Windows + Right arrow
 		Debug("Sent Windows+Right to snap Zoom window to right half", "VERBOSE")
 	Else
-		Debug("_SnapZoomWindowToSide: Invalid snap side: " & $snapSide, "ERROR")
+		Debug(t("ERROR_INVALID_SNAP_SELECTION", $snapSide), "ERROR")
 		Return False
 	EndIf
 
@@ -1445,98 +1444,6 @@ Func FindElementByPartialName($sPartial, $aControlTypes = Default, $oParent = De
 	Return 0
 EndFunc   ;==>FindElementByPartialName
 
-; Finds UI element with retry logic for maximum compatibility
-; @param $sPartial - Partial text to search for in element names
-; @param $iMaxRetries - Maximum number of retry attempts (default: 3)
-; @param $iDelayMs - Delay between retries in milliseconds (default: 500)
-; @param $aControlTypes - Array of control types to search (default: button and menu item)
-; @param $oParent - Parent element to search within (default: desktop)
-; @return Object - Found element or 0 if not found
-Func FindElementWithRetry($sPartial, $iMaxRetries = $ELEMENT_SEARCH_RETRY_COUNT, $iDelayMs = $ELEMENT_SEARCH_RETRY_DELAY_MS, $aControlTypes = Default, $oParent = Default)
-	For $i = 1 To $iMaxRetries
-		Local $oElement = FindElementByPartialName($sPartial, $aControlTypes, $oParent)
-		If IsObj($oElement) Then Return $oElement
-
-		Debug("Element '" & $sPartial & "' not found, retry " & $i & "/" & $iMaxRetries, "VERBOSE")
-		Sleep($iDelayMs)
-	Next
-
-	Debug("Element '" & $sPartial & "' not found after " & $iMaxRetries & " retries", "ERROR")
-	Return 0
-EndFunc   ;==>FindElementWithRetry
-
-; Searches for UI elements by control type and prints their hierarchy for debugging
-; @param $iControlType - Control type ID to search for
-; @param $oParent - Parent element to search within (default: desktop)
-; @return Object - First element found or 0 if none found
-Func FindElementByControlType($iControlType, $oParent = Default)
-	Debug("Searching for ALL elements of control type: " & $iControlType, "VERBOSE")
-
-	Local $oSearchParent = $oDesktop
-	If $oParent <> Default Then
-		$oSearchParent = $oParent
-		Debug("Using custom parent element for search", "VERBOSE")
-	Else
-		Debug("Using desktop as search parent", "VERBOSE")
-	EndIf
-
-	Local $pCondition
-	$oUIAutomation.CreatePropertyCondition($UIA_ControlTypePropertyId, $iControlType, $pCondition)
-
-	Local $pElements
-	; 🔑 Use Descendants instead of Subtree
-	$oSearchParent.FindAll($TreeScope_Descendants, $pCondition, $pElements)
-
-	Local $oElements = ObjCreateInterface($pElements, $sIID_IUIAutomationElementArray, $dtagIUIAutomationElementArray)
-	If Not IsObj($oElements) Then
-		Debug("Failed to create element array object", "ERROR")
-		Return 0
-	EndIf
-
-	Local $count
-	$oElements.Length($count)
-
-	If $count = 0 Then
-		Debug("No elements found for control type: " & $iControlType, "WARN")
-		Return 0
-	EndIf
-
-	Debug("Found " & $count & " element(s) of control type " & $iControlType, "VERBOSE")
-
-	; If only one element, return it directly
-	If $count = 1 Then
-		Local $pElem
-		$oElements.GetElement(0, $pElem)
-		Local $oElem = ObjCreateInterface($pElem, $sIID_IUIAutomationElement, $dtagIUIAutomationElement)
-
-		Local $sName
-		$oElem.GetCurrentPropertyValue($UIA_NamePropertyId, $sName)
-		Debug("Single element name: " & $sName, "VERBOSE")
-
-		Return $oElem
-	EndIf
-
-	; Otherwise, print hierarchy recursively
-	For $i = 0 To $count - 1
-		Local $pElement
-		$oElements.GetElement($i, $pElement)
-
-		Local $oElement = ObjCreateInterface($pElement, $sIID_IUIAutomationElement, $dtagIUIAutomationElement)
-		If IsObj($oElement) Then
-			; Get element name and log it
-			$sName = GetElementName($oElement)
-			Debug("Element #" & $i & " name: '" & $sName & "'", "INFO")
-
-			; Optional: recursive tree print
-			_PrintElementTree($oElement, 1)
-		EndIf
-	Next
-
-	Return 0
-EndFunc   ;==>FindElementByControlType
-
-
-
 ; Recursively prints element name + children
 Func _PrintElementTree($oElem, $level = 0)
 	If Not IsObj($oElem) Then Return
@@ -1599,14 +1506,16 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 		; Method 0.5: Force mouse click by bounding rectangle (only when requested)
 		If $BoundingRectangle Then
 			If TimerDiff($iStartTime) > $iTimeoutMs Then
-				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
+				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "VERBOSE")
 				Return False
 			EndIf
-			ClickByBoundingRectangle($oElement)
+			If not ClickByBoundingRectangle($oElement) then
+				Return False
+			EndIf
 			Debug("Element clicked via bounding rectangle.", "VERBOSE")
 		Else
 			If TimerDiff($iStartTime) > $iTimeoutMs Then
-				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
+				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "VERBOSE")
 				Return False
 			EndIf
 			UIA_MouseClick($oElement)
@@ -1622,7 +1531,7 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 		$oInvokePattern = ObjCreateInterface($pInvokePattern, $sIID_IUIAutomationInvokePattern, $dtagIUIAutomationInvokePattern)
 		If IsObj($oInvokePattern) Then
 			If TimerDiff($iStartTime) > $iTimeoutMs Then
-				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
+				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "VERBOSE")
 				Return False
 			EndIf
 			Debug("Using Invoke pattern for: '" & $sElementName & "'", "VERBOSE")
@@ -1639,7 +1548,7 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 		$oLegacyPattern = ObjCreateInterface($pLegacyPattern, $sIID_IUIAutomationLegacyIAccessiblePattern, $dtagIUIAutomationLegacyIAccessiblePattern)
 		If IsObj($oLegacyPattern) Then
 			If TimerDiff($iStartTime) > $iTimeoutMs Then
-				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
+				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "VERBOSE")
 				Return False
 			EndIf
 			Debug("Using LegacyAccessible pattern for: '" & $sElementName & "'", "VERBOSE")
@@ -1656,7 +1565,7 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 		$oSelectionItemPattern = ObjCreateInterface($pSelectionItemPattern, $sIID_IUIAutomationSelectionItemPattern, $dtagIUIAutomationSelectionItemPattern)
 		If IsObj($oSelectionItemPattern) Then
 			If TimerDiff($iStartTime) > $iTimeoutMs Then
-				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
+				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "VERBOSE")
 				Return False
 			EndIf
 			Debug("Using SelectionItem pattern for: '" & $sElementName & "'", "VERBOSE")
@@ -1673,7 +1582,7 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 		$oTogglePattern = ObjCreateInterface($pTogglePattern, $sIID_IUIAutomationTogglePattern, $dtagIUIAutomationTogglePattern)
 		If IsObj($oTogglePattern) Then
 			If TimerDiff($iStartTime) > $iTimeoutMs Then
-				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
+				Debug("Click operation timed out after " & $iTimeoutMs & "ms", "VERBOSE")
 				Return False
 			EndIf
 			Debug("Using Toggle pattern for: '" & $sElementName & "'", "VERBOSE")
@@ -1685,13 +1594,15 @@ Func _ClickElement($oElement, $ForceClick = False, $BoundingRectangle = False, $
 
 	; Method 5: Fallback - Mouse click at element center
 	If TimerDiff($iStartTime) > $iTimeoutMs Then
-		Debug("Click operation timed out after " & $iTimeoutMs & "ms", "ERROR")
+		Debug("Click operation timed out after " & $iTimeoutMs & "ms", "VERBOSE")
 		Return False
 	EndIf
-	ClickByBoundingRectangle($oElement)
+	if not ClickByBoundingRectangle($oElement) then
+		Return False
+	EndIf
 
 	; All click methods failed
-	Debug(t("ERROR_FAILED_CLICK_ELEMENT") & ": '" & $sElementName & "'", "ERROR")
+	Debug(t("ERROR_FAILED_CLICK_ELEMENT") & ": '" & $sElementName & "'", "VERBOSE")
 	Return False
 EndFunc   ;==>_ClickElement
 
@@ -1703,13 +1614,13 @@ Func ClickByBoundingRectangle($oElement)
 	UIA_GetArrayPropertyValueAsString($tRect)
 	Debug("Element bounding rectangle: " & $tRect, "VERBOSE")
 	If Not $tRect Then
-		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
+		Debug("No bounding rectangle for element: '" & $sElementName & "'", "VERBOSE")
 		Return False
 	EndIf
 
 	Local $aRect = StringSplit($tRect, ",")
 	If $aRect[0] < 4 Then
-		Debug("Invalid rectangle format for: '" & $sElementName & "'", "ERROR")
+		Debug("Invalid rectangle format for: '" & $sElementName & "'", "VERBOSE")
 		Return False
 	EndIf
 
@@ -1773,13 +1684,13 @@ Func _HoverElement($oElement, $iHoverTime = $HOVER_DEFAULT_MS, $SlightOffset = F
 	UIA_GetArrayPropertyValueAsString($tRect)
 	Debug("Element bounding rectangle: " & $tRect, "VERBOSE")
 	If Not $tRect Then
-		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
+		Debug("No bounding rectangle for element: '" & $sElementName & "'", "WARN")
 		Return False
 	EndIf
 
 	Local $aRect = StringSplit($tRect, ",")
 	If $aRect[0] < 4 Then
-		Debug("Invalid rectangle format for: '" & $sElementName & "'", "ERROR")
+		Debug("Invalid rectangle format for: '" & $sElementName & "'", "WARN")
 		Return False
 	EndIf
 
@@ -1831,13 +1742,13 @@ Func _MoveMouseToStartOfElement($oElement, $Click = False)
 	UIA_GetArrayPropertyValueAsString($tRect)
 	Debug("Element bounding rectangle: " & $tRect, "VERBOSE")
 	If Not $tRect Then
-		Debug("No bounding rectangle for element: '" & $sElementName & "'", "ERROR")
+		Debug("No bounding rectangle for element: '" & $sElementName & "'", "WARN")
 		Return False
 	EndIf
 
 	Local $aRect = StringSplit($tRect, ",")
 	If $aRect[0] < 4 Then
-		Debug("Invalid rectangle format for: '" & $sElementName & "'", "ERROR")
+		Debug("Invalid rectangle format for: '" & $sElementName & "'", "WARN")
 		Return False
 	EndIf
 
@@ -1895,7 +1806,7 @@ Func _OpenHostTools()
 		If IsObj($oHostToolsButton) Then
 			Debug("Host Tools button found directly; clicking.", "VERBOSE")
 			If Not _ClickElement($oHostToolsButton) Then
-				Debug("Failed to click Host Tools.", "ERROR")
+				Debug(t("ERROR_FAILED_CLICK_ELEMENT") & ": 'Host Tools button'", "ERROR")
 				Return False
 			else 
 				ResponsiveSleep(0.5)
@@ -1916,15 +1827,15 @@ Func _OpenHostTools()
 						$oHostMenu = FindElementByClassName("WCN_ModelessWnd", Default, $oZoomWindow)
 						Return $oHostMenu
 					Else
-						Debug("Failed to hover Host Tools menu item in More menu.", "ERROR")
+						Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("HostToolsValue")), "ERROR")
 						Return False
 					EndIf
 				Else
-					Debug("Failed to find Host Tools menu item in More menu.", "ERROR")
+					Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("HostToolsValue")), "ERROR")
 					Return False
 				EndIf
 			Else
-				Debug("Failed to find More menu to access Host Tools.", "ERROR")
+				Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("MoreMeetingControlsValue")), "ERROR")
 				Return False
 			EndIf
 		EndIf
@@ -1961,12 +1872,12 @@ Func GetMoreMenu()
 
 		Local $oMoreButton = FindElementByPartialName(GetUserSetting("MoreMeetingControlsValue"), Default, $oZoomWindow)
 		If Not IsObj($oMoreButton) Then
-			Debug("Failed to find More button.", "ERROR")
+			Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("MoreMeetingControlsValue")), "ERROR")
 			Return False
 		EndIf
 		Debug("Clicking More button to open menu.", "VERBOSE")
 		If Not _ClickElement($oMoreButton, True) Then
-			Debug("Failed to click More button.", "ERROR")
+			Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("MoreMeetingControlsValue")), "ERROR")
 			Return False
 		EndIf
 		; Wait briefly for the More menu to open
@@ -1978,7 +1889,7 @@ Func GetMoreMenu()
 	If IsObj($oMoreMenu) Then
 		Debug("More menu opened.", "UIA")
 	Else
-		Debug("Failed to open More menu.", "ERROR")
+		Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("MoreMeetingControlsValue")), "ERROR")
 	EndIf
 	Return $oMoreMenu
 EndFunc   ;==>GetMoreMenu
@@ -2010,7 +1921,7 @@ Func _OpenParticipantsPanel()
 		If IsObj($oMainParticipantsButton) Then
 			Debug("Participants button found directly; clicking.", "VERBOSE")
 			If Not _ClickElement($oMainParticipantsButton) Then
-				Debug("Failed to click Participants.", "ERROR")
+				Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("ParticipantValue")), "ERROR")
 				Return False
 			EndIf
 		Else
@@ -2033,19 +1944,19 @@ Func _OpenParticipantsPanel()
 							Debug("Participants button clicked.", "VERBOSE")
 							ResponsiveSleep(0.5) ; Move mouse to start of element and click to avoid hover issues
 						Else
-							Debug("Failed to find Participants button in submenu.", "ERROR")
+							Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("ParticipantValue")), "ERROR")
 							Return False
 						EndIf
 					Else
-						Debug("Failed to hover Participants menu item in More menu.", "ERROR")
+						Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("ParticipantValue")), "ERROR")
 						Return False
 					EndIf
 				Else
-					Debug("Failed to find Participants menu item in More menu.", "ERROR")
+					Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("ParticipantValue")), "ERROR")
 					Return False
 				EndIf
 			Else
-				Debug("Failed to find More menu to access Participants.", "ERROR")
+				Debug(t("ERROR_FAILED_CLICK_ELEMENT", GetUserSetting("ParticipantValue")), "ERROR")
 				Return False
 			EndIf
 		EndIf
@@ -2057,7 +1968,7 @@ Func _OpenParticipantsPanel()
 		Debug("Participants panel opened.", "UIA")
 		_SnapZoomWindowToSide()
 	Else
-		Debug("Failed to open Participants panel.", "ERROR")
+		Debug(t("ERROR_FAILED_OPEN_PANEL", GetUserSetting("ParticipantValue")), "ERROR")
 	EndIf
 	Return $oParticipantsPanel
 EndFunc   ;==>_OpenParticipantsPanel
@@ -2093,7 +2004,7 @@ Func _UpdateKeyboardShortcut()
 			$g_HotkeyRegistered = True
 			Debug("New keyboard shortcut registered: " & $g_KeyboardShortcut, "VERBOSE")
 		Else
-			Debug("Invalid keyboard shortcut format: " & $g_KeyboardShortcut, "ERROR")
+			Debug("Invalid keyboard shortcut format: " & $g_KeyboardShortcut, "VERBOSE")
 			$g_KeyboardShortcut = ""
 			IniWrite($CONFIG_FILE, "General", "KeyboardShortcut", "")
 		EndIf
